@@ -299,7 +299,6 @@ function itemRow(item, fresh, shared) {
       <span class="box">${TICK}</span><span class="item-main"><span class="item-text">${escapeHtml(item.text)}</span>${item.qty ? `<span class="qty">${escapeHtml(item.qty)}</span>` : ''}</span>
     </button>${by}
     <button type="button" class="edit" data-edit aria-label="Edit ${escapeHtml(item.text)}">${PENCIL}</button>
-    <button type="button" class="swipe-delete" data-delete-item aria-label="Delete ${escapeHtml(item.text)}">Delete</button>
   </li>`;
 }
 
@@ -531,17 +530,19 @@ function listMenu(list) {
   }, onDelete: () => deleteLists([list]) });
 }
 
+function deleteItemWithUndo(item) {
+  const saved = { ...item };
+  change({ type: 'deleteItem', id: item.id });
+  render();
+  showToast('Item deleted', () => { change(...restoreItems([saved])); render(); });
+}
+
 function itemMenu(item) {
   const shopping = kindOf(lists.find((list) => list.id === item.listId)) === 'shopping';
   openSheet({ title: 'Edit item', value: item.text, qty: shopping ? item.qty ?? '' : undefined, group: shopping ? groupOf(item) : undefined, onSave: (text, { qty, group }) => {
     change({ type: 'editItem', id: item.id, text, ...(qty !== undefined && { qty }), ...(group !== undefined && { grp: group }) });
     render();
-  }, onDelete: () => {
-    const saved = { ...item };
-    change({ type: 'deleteItem', id: item.id });
-    render();
-    showToast('Item deleted', () => { change(...restoreItems([saved])); render(); });
-  } });
+  }, onDelete: () => deleteItemWithUndo(item) });
 }
 
 // Undo puts things back with their original ids and dates.
@@ -744,13 +745,6 @@ document.addEventListener('click', (event) => {
   if (!row) return;
   const item = findItem(lists, row.dataset.item);
   if (!item) return;
-  if (target.closest('[data-delete-item]')) {
-    const saved = structuredClone(item);
-    change({ type: 'deleteItem', id: item.id });
-    render();
-    showToast('Item deleted', () => { change(...restoreItems([saved])); render(); });
-    return;
-  }
   if (target.closest('[data-edit]')) return itemMenu(item);
   if (target.closest('[data-toggle]')) {
     const done = !item.done;
@@ -832,12 +826,12 @@ document.addEventListener('touchend', (event) => {
 }, { passive: true });
 document.addEventListener('touchcancel', resetSwipe);
 
-// A left swipe reveals an explicit Delete action; scrolling remains vertical.
+// Swipe an item left to delete it. It follows your finger with red behind it; let go past a third
+// of the way (or flick it) and it slides off, the gap closes, and Undo appears. A short swipe springs back.
 let itemSwipe = null;
 document.addEventListener('touchstart', (event) => {
   const row = event.target.closest('.item');
-  document.querySelectorAll('.item.delete-revealed').forEach((other) => { if (other !== row) other.classList.remove('delete-revealed'); });
-  itemSwipe = row && event.touches.length === 1 && !event.target.closest('dialog') ? { row, x: event.touches[0].clientX, y: event.touches[0].clientY, horizontal: false } : null;
+  itemSwipe = row && event.touches.length === 1 && !event.target.closest('dialog') ? { row, x: event.touches[0].clientX, y: event.touches[0].clientY, at: performance.now(), horizontal: false, dx: 0 } : null;
 }, { passive: true });
 document.addEventListener('touchmove', (event) => {
   if (!itemSwipe) return;
@@ -848,18 +842,34 @@ document.addEventListener('touchmove', (event) => {
   if (!itemSwipe.horizontal) return;
   event.preventDefault();
   cancelHold();
-  const offset = itemSwipe.row.classList.contains('delete-revealed') ? -80 : 0;
-  itemSwipe.row.style.setProperty('--swipe-offset', `${Math.max(-80, Math.min(0, offset + dx))}px`);
+  itemSwipe.dx = dx < 0 ? dx : dx * 0.15; // only left deletes; right just gives a little
+  itemSwipe.row.classList.add('swiping');
+  itemSwipe.row.style.transform = `translateX(${itemSwipe.dx}px)`;
 }, { passive: false });
 function finishItemSwipe(cancelled = false) {
   if (!itemSwipe) return;
-  const { row, horizontal } = itemSwipe;
-  if (horizontal) {
-    held = true;
-    row.classList.toggle('delete-revealed', !cancelled && parseFloat(row.style.getPropertyValue('--swipe-offset')) < -35);
-  }
-  row.style.removeProperty('--swipe-offset');
+  const { row, horizontal, dx, at } = itemSwipe;
   itemSwipe = null;
+  if (!horizontal) return;
+  held = true; // the touch ending shouldn't also tick the item
+  const flicked = dx < -40 && Math.abs(dx) / Math.max(1, performance.now() - at) > 0.5;
+  if (!cancelled && (dx < -row.offsetWidth * 0.35 || flicked)) { swipeAway(row); return; }
+  row.animate([{ transform: `translateX(${dx}px)` }, { transform: 'translateX(0)' }], { duration: 220, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+  row.style.transform = '';
+  row.classList.remove('swiping');
+}
+function swipeAway(row) {
+  const item = findItem(lists, row.dataset.item);
+  if (!item) return;
+  if (REDUCED_MOTION.matches) { deleteItemWithUndo(item); return; }
+  const height = row.offsetHeight;
+  row.style.pointerEvents = 'none';
+  row.animate([{ transform: row.style.transform || 'translateX(0)' }, { transform: `translateX(${-row.offsetWidth - 40}px)` }], { duration: 170, easing: 'ease-in', fill: 'forwards' }).finished
+    .then(() => {
+      row.style.overflow = 'hidden';
+      return row.animate([{ height: `${height}px`, minHeight: `${height}px`, marginBottom: '0px' }, { height: '0px', minHeight: '0px', marginBottom: '-8px' }], { duration: 180, easing: 'ease-out', fill: 'forwards' }).finished;
+    })
+    .then(() => deleteItemWithUndo(item));
 }
 document.addEventListener('touchend', () => finishItemSwipe(), { passive: true });
 document.addEventListener('touchcancel', () => finishItemSwipe(true), { passive: true });
