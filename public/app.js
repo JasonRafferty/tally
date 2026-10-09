@@ -256,7 +256,7 @@ function renderHome() {
     const next = pinned ? list.items.filter((item) => !item.done).sort((x, y) => y.created - x.created).slice(0, 3) : [];
     const picked = selected?.has(list.id);
     return `<button type="button" class="tile${pinned ? ' pinned' : ''}${picked ? ' selected' : ''}" ${selected ? `aria-pressed="${picked}"` : ''} data-list="${escapeHtml(list.id)}" style="--ga:${a};--gb:${b};--delay:${60 + (together.length + i) * 35}ms">
-      <span class="icon">${TICK}</span>
+      <span class="icon">${listIcon(list)}</span>
       <span class="corner">${pinned ? `<span class="pin-mark" aria-label="Pinned">${PIN}</span>` : ''}${total ? count : ''}</span>
       <span class="copy"><b>${escapeHtml(list.name)}</b><small>${!total ? 'Empty' : total - left ? `${total - left} of ${total} done` : plural(total, 'item')}</small>
         ${next.length ? `<span class="peek">${next.map((item) => `<span>${escapeHtml(item.text)}</span>`).join('')}</span>` : ''}</span>
