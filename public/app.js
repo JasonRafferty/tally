@@ -175,15 +175,32 @@ const sortedLists = () => {
 function setView(next) {
   if (next === view) return;
   const forward = next === 'shopping';
+  const content = $('#home-content');
+  const width = content.getBoundingClientRect().width;
+  const outgoing = !REDUCED_MOTION.matches ? content.cloneNode(true) : null;
+  const dragged = Number(content.dataset.drag || 0);
+  content.getAnimations().forEach((animation) => animation.cancel());
+  content.style.transform = '';
+  delete content.dataset.drag;
+  if (outgoing) {
+    outgoing.removeAttribute('id');
+    outgoing.querySelectorAll('[id]').forEach((element) => element.removeAttribute('id'));
+    outgoing.inert = true;
+    outgoing.setAttribute('aria-hidden', 'true');
+    Object.assign(outgoing.style, { position: 'absolute', top: `${content.offsetTop}px`, left: `${content.offsetLeft}px`, width: `${width}px`, pointerEvents: 'none' });
+    document.body.append(outgoing);
+  }
   stopSelecting();
   view = next;
   store.set('tally-kind', view);
-  if (!REDUCED_MOTION.matches) {
-    document.body.classList.remove('slide-in', 'slide-back', 'intro');
-    void document.body.offsetWidth;
-    document.body.classList.add(forward ? 'slide-in' : 'slide-back');
-  }
+  document.body.classList.remove('slide-in', 'slide-back', 'intro');
   render();
+  if (outgoing) {
+    const direction = forward ? -1 : 1;
+    const options = { duration: 320, easing: 'cubic-bezier(.22,.8,.25,1)' };
+    outgoing.animate([{ transform: `translateX(${dragged}px)`, opacity: 1 }, { transform: `translateX(${direction * (width + 24)}px)`, opacity: 0 }], options).finished.finally(() => outgoing.remove());
+    content.animate([{ transform: `translateX(${-direction * (width + 24) + dragged}px)`, opacity: .5 }, { transform: 'translateX(0)', opacity: 1 }], options);
+  }
 }
 
 function render() {
@@ -282,6 +299,7 @@ function itemRow(item, fresh, shared) {
       <span class="box">${TICK}</span><span class="item-main"><span class="item-text">${escapeHtml(item.text)}</span>${item.qty ? `<span class="qty">${escapeHtml(item.qty)}</span>` : ''}</span>
     </button>${by}
     <button type="button" class="edit" data-edit aria-label="Edit ${escapeHtml(item.text)}">${PENCIL}</button>
+    <button type="button" class="swipe-delete" data-delete-item aria-label="Delete ${escapeHtml(item.text)}">Delete</button>
   </li>`;
 }
 
@@ -628,6 +646,9 @@ function knownItems() {
     if (kindOf(list) !== 'shopping') continue;
     for (const item of list.items) if (!known.has(itemKey(item.text))) known.set(itemKey(item.text), { text: item.text, qty: item.qty ?? '', grp: item.grp, count: 1 });
   }
+  for (const text of ['Milk', 'Bread', 'Eggs', 'Butter', 'Cheese', 'Yoghurt', 'Bananas', 'Apples', 'Oranges', 'Strawberries', 'Potatoes', 'Onions', 'Carrots', 'Tomatoes', 'Lettuce', 'Broccoli', 'Mushrooms', 'Chicken', 'Beef', 'Salmon', 'Rice', 'Pasta', 'Noodles', 'Flour', 'Sugar', 'Salt', 'Olive oil', 'Coffee', 'Tea', 'Cereal', 'Oats', 'Baked beans', 'Tinned tomatoes', 'Toilet roll', 'Kitchen roll', 'Washing up liquid', 'Laundry detergent', 'Bin bags', 'Toothpaste', 'Shampoo']) {
+    if (!known.has(itemKey(text))) known.set(itemKey(text), { text, qty: '', grp: guessGroup(text), count: 0, staple: true });
+  }
   return [...known.values()];
 }
 
@@ -637,7 +658,7 @@ function suggestionsFor(list, typed) {
   const waiting = new Set(list.items.filter((item) => !item.done).map((item) => itemKey(item.text)));
   const query = itemKey(typed.replace(new RegExp(`^\\d+(?:\\.\\d+)?(?:\\s*${UNIT})?(?:\\s+of)?\\s+`, 'i'), ''));
   const pool = knownItems().filter((entry) => !waiting.has(itemKey(entry.text)));
-  if (!query) return pool.slice(0, 10); // history is newest first: "buy again"
+  if (!query) return pool.filter((entry) => !entry.staple).slice(0, 10);
   const starts = (entry) => itemKey(entry.text).startsWith(query);
   const wordStarts = (entry) => itemKey(entry.text).split(' ').some((word) => word.startsWith(query));
   const byCount = (a, b) => b.count - a.count;
@@ -723,6 +744,13 @@ document.addEventListener('click', (event) => {
   if (!row) return;
   const item = findItem(lists, row.dataset.item);
   if (!item) return;
+  if (target.closest('[data-delete-item]')) {
+    const saved = structuredClone(item);
+    change({ type: 'deleteItem', id: item.id });
+    render();
+    showToast('Item deleted', () => { change(...restoreItems([saved])); render(); });
+    return;
+  }
   if (target.closest('[data-edit]')) return itemMenu(item);
   if (target.closest('[data-toggle]')) {
     const done = !item.done;
@@ -766,18 +794,88 @@ let swipe = null;
 document.addEventListener('touchstart', (event) => {
   const t = event.touches[0];
   const blocked = document.body.dataset.view !== 'home' || selected || event.touches.length > 1 || event.target.closest('dialog, .select-bar, .install');
-  swipe = blocked ? null : { x: t.clientX, y: t.clientY };
+  swipe = blocked ? null : { x: t.clientX, y: t.clientY, at: performance.now(), horizontal: false };
 }, { passive: true });
+document.addEventListener('touchmove', (event) => {
+  if (!swipe) return;
+  const dx = event.touches[0].clientX - swipe.x;
+  const dy = event.touches[0].clientY - swipe.y;
+  if (!swipe.horizontal && Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { swipe = null; return; }
+  if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.5) swipe.horizontal = true;
+  if (!swipe.horizontal) return;
+  event.preventDefault();
+  cancelHold();
+  const blocked = (view === 'todo' && dx > 0) || (view === 'shopping' && dx < 0);
+  const distance = blocked ? dx * .18 : dx;
+  $('#home-content').dataset.drag = distance;
+  if (!REDUCED_MOTION.matches) $('#home-content').style.transform = `translateX(${distance}px)`;
+}, { passive: false });
+function resetSwipe() {
+  const content = $('#home-content');
+  const from = content.style.transform || 'none';
+  content.style.transform = '';
+  delete content.dataset.drag;
+  if (!REDUCED_MOTION.matches) content.animate([{ transform: from }, { transform: 'translateX(0)' }], { duration: 200, easing: 'ease-out' });
+  swipe = null;
+}
 document.addEventListener('touchend', (event) => {
   if (!swipe) return;
   const t = event.changedTouches[0];
   const dx = t.clientX - swipe.x;
   const dy = t.clientY - swipe.y;
+  const velocity = Math.abs(dx) / Math.max(1, performance.now() - swipe.at);
+  const next = dx < 0 ? 'shopping' : 'todo';
+  if ((Math.abs(dx) < 60 && !(Math.abs(dx) > 25 && velocity > .4)) || Math.abs(dx) < Math.abs(dy) * 1.5 || next === view) { resetSwipe(); return; }
+  held = true; // Suppress the tile click generated at the end of a swipe.
   swipe = null;
-  if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
-  setView(dx < 0 ? 'shopping' : 'todo');
+  setView(next);
 }, { passive: true });
-document.addEventListener('touchcancel', () => { swipe = null; });
+document.addEventListener('touchcancel', resetSwipe);
+
+// A left swipe reveals an explicit Delete action; scrolling remains vertical.
+let itemSwipe = null;
+document.addEventListener('touchstart', (event) => {
+  const row = event.target.closest('.item');
+  document.querySelectorAll('.item.delete-revealed').forEach((other) => { if (other !== row) other.classList.remove('delete-revealed'); });
+  itemSwipe = row && event.touches.length === 1 && !event.target.closest('dialog') ? { row, x: event.touches[0].clientX, y: event.touches[0].clientY, horizontal: false } : null;
+}, { passive: true });
+document.addEventListener('touchmove', (event) => {
+  if (!itemSwipe) return;
+  const dx = event.touches[0].clientX - itemSwipe.x;
+  const dy = event.touches[0].clientY - itemSwipe.y;
+  if (!itemSwipe.horizontal && Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { itemSwipe = null; return; }
+  if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5) itemSwipe.horizontal = true;
+  if (!itemSwipe.horizontal) return;
+  event.preventDefault();
+  cancelHold();
+  const offset = itemSwipe.row.classList.contains('delete-revealed') ? -80 : 0;
+  itemSwipe.row.style.setProperty('--swipe-offset', `${Math.max(-80, Math.min(0, offset + dx))}px`);
+}, { passive: false });
+function finishItemSwipe(cancelled = false) {
+  if (!itemSwipe) return;
+  const { row, horizontal } = itemSwipe;
+  if (horizontal) {
+    held = true;
+    row.classList.toggle('delete-revealed', !cancelled && parseFloat(row.style.getPropertyValue('--swipe-offset')) < -35);
+  }
+  row.style.removeProperty('--swipe-offset');
+  itemSwipe = null;
+}
+document.addEventListener('touchend', () => finishItemSwipe(), { passive: true });
+document.addEventListener('touchcancel', () => finishItemSwipe(true), { passive: true });
+
+// Keep dialogs inside the visible area when a phone's keyboard opens.
+function updateViewport() {
+  const viewport = window.visualViewport;
+  const height = viewport?.height ?? window.innerHeight;
+  document.documentElement.style.setProperty('--visible-height', `${height}px`);
+  document.documentElement.style.setProperty('--visible-top', `${viewport?.offsetTop ?? 0}px`);
+  document.body.classList.toggle('keyboard-open', height < window.innerHeight - 120);
+}
+window.visualViewport?.addEventListener('resize', updateViewport);
+window.visualViewport?.addEventListener('scroll', updateViewport);
+window.addEventListener('resize', updateViewport);
+updateViewport();
 
 document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && selected && !editSheet.open) stopSelecting(); });
 
