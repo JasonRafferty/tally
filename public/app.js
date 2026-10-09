@@ -39,7 +39,7 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 // --- data ----------------------------------------------------------------------------------
 // `server` is the last copy the server sent. `outbox` holds changes not yet saved there.
 // What's on screen is the server copy with the outbox replayed on top, so the app works offline.
-let server = store.get('checklist-server', { version: 0, lists: [] });
+let server = store.get('checklist-server', { version: 0, lists: [], history: [] });
 let outbox = store.get('checklist-outbox', []);
 let lists = [];
 let loaded = server.version > 0;
@@ -199,6 +199,7 @@ function render() {
   $('#title').textContent = list ? list.name : selected ? `${selected.size} selected` : view === 'shopping' ? 'Shopping' : 'To-do';
   document.title = list ? `${list.name} · Checklist` : 'Checklist';
   if (list) renderList(list); else renderHome();
+  renderSuggestions();
   showStatus();
 }
 
@@ -582,7 +583,53 @@ function parseQuantity(input) {
 
 const addForm = $('#add-form');
 const addInput = $('#add-input');
-addInput.addEventListener('input', () => addForm.classList.toggle('has-text', addInput.value.trim() !== ''));
+const suggestBox = $('#suggest');
+const itemKey = (text) => text.trim().toLowerCase().replace(/\s+/g, ' ');
+
+// Everything bought before: the server's history, plus items on shopping lists that haven't reached it yet.
+function knownItems() {
+  const known = new Map((server.history ?? []).map((entry) => [itemKey(entry.text), entry]));
+  for (const list of lists) {
+    if (kindOf(list) !== 'shopping') continue;
+    for (const item of list.items) if (!known.has(itemKey(item.text))) known.set(itemKey(item.text), { text: item.text, qty: item.qty ?? '', grp: item.grp, count: 1 });
+  }
+  return [...known.values()];
+}
+
+// Suggestions for what's typed: names that start with it first, then names with a word that does.
+// Items already waiting on this list are left out. A ticked one can be brought back instead.
+function suggestionsFor(list, typed) {
+  const waiting = new Set(list.items.filter((item) => !item.done).map((item) => itemKey(item.text)));
+  const query = itemKey(typed.replace(new RegExp(`^\\d+(?:\\.\\d+)?(?:\\s*${UNIT})?(?:\\s+of)?\\s+`, 'i'), ''));
+  const pool = knownItems().filter((entry) => !waiting.has(itemKey(entry.text)));
+  if (!query) return pool.slice(0, 10); // history is newest first: "buy again"
+  const starts = (entry) => itemKey(entry.text).startsWith(query);
+  const wordStarts = (entry) => itemKey(entry.text).split(' ').some((word) => word.startsWith(query));
+  const byCount = (a, b) => b.count - a.count;
+  return [...pool.filter(starts).sort(byCount), ...pool.filter((entry) => !starts(entry) && wordStarts(entry)).sort(byCount)].slice(0, 8);
+}
+
+function renderSuggestions() {
+  const list = currentList();
+  const typed = addInput.value.trim();
+  const show = list && kindOf(list) === 'shopping' && document.activeElement === addInput;
+  const found = show ? suggestionsFor(list, typed) : [];
+  suggestBox.hidden = !found.length;
+  suggestBox.innerHTML = found.length ? `${typed ? '' : '<span class="suggest-label">Buy again</span>'}${found.map((entry, i) => `<button type="button" data-suggest="${i}">${escapeHtml(entry.text)}${entry.qty ? `<small>${escapeHtml(entry.qty)}</small>` : ''}</button>`).join('')}` : '';
+  suggestBox.found = found;
+}
+
+function addToList(list, name, qty, grp) {
+  const shopping = kindOf(list) === 'shopping';
+  if (shopping) name = name.charAt(0).toUpperCase() + name.slice(1);
+  const brought = shopping && list.items.find((item) => item.done && itemKey(item.text) === itemKey(name));
+  if (brought) change({ type: 'checkItem', id: brought.id, done: false }); // already on the list, ticked: put it back
+  else change({ type: 'addItem', id: newId(), listId: list.id, text: name, qty, ...(shopping && { grp: GROUP_IDS.has(grp) ? grp : guessGroup(name) }) });
+}
+
+addInput.addEventListener('input', () => { addForm.classList.toggle('has-text', addInput.value.trim() !== ''); renderSuggestions(); });
+addInput.addEventListener('focus', renderSuggestions);
+addInput.addEventListener('blur', () => setTimeout(renderSuggestions, 150)); // after a tap on a suggestion has landed
 addForm.addEventListener('submit', (event) => {
   event.preventDefault();
   const list = currentList();
@@ -591,12 +638,29 @@ addForm.addEventListener('submit', (event) => {
   const shopping = kindOf(list) === 'shopping';
   const parsed = shopping ? parseQuantity(text) : { text, qty: '' };
   const name = shopping ? parsed.text.charAt(0).toUpperCase() + parsed.text.slice(1) : parsed.text;
-  const qty = parsed.qty;
-  change({ type: 'addItem', id: newId(), listId: list.id, text: name, qty, ...(shopping && { grp: guessGroup(name) }) });
+  // Typing something you've bought before fills in its usual quantity and group.
+  const usual = shopping ? knownItems().find((entry) => itemKey(entry.text) === itemKey(name)) : null;
+  addToList(list, usual?.text ?? name, parsed.qty || usual?.qty || '', usual?.grp);
   addInput.value = '';
   addForm.classList.remove('has-text');
   render();
   addInput.focus(); // keep the keyboard up for the next item
+  renderSuggestions();
+});
+// Tapping a suggestion adds it without taking the keyboard away.
+suggestBox.addEventListener('pointerdown', (event) => { if (event.target.closest('button')) event.preventDefault(); });
+suggestBox.addEventListener('click', (event) => {
+  const chip = event.target.closest('[data-suggest]');
+  const list = currentList();
+  const entry = chip && suggestBox.found?.[Number(chip.dataset.suggest)];
+  if (!entry || !list) return;
+  const prefix = addInput.value.trim().match(new RegExp(`^(\\d+(?:\\.\\d+)?(?:\\s*${UNIT})?)(?:\\s+of)?\\s+`, 'i'));
+  addToList(list, entry.text, prefix ? prefix[1] : entry.qty, entry.grp);
+  addInput.value = '';
+  addForm.classList.remove('has-text');
+  render();
+  addInput.focus();
+  renderSuggestions();
 });
 
 document.addEventListener('click', (event) => {

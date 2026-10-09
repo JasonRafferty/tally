@@ -58,6 +58,15 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS items_by_list ON items(list_id);
   CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL);
+  -- everything ever added to a shopping list: powers autofill, and remembers each item's usual quantity and group
+  CREATE TABLE IF NOT EXISTS history (
+    key TEXT PRIMARY KEY,
+    text TEXT NOT NULL,
+    qty TEXT NOT NULL DEFAULT '',
+    grp TEXT,
+    count INTEGER NOT NULL DEFAULT 1,
+    last INTEGER NOT NULL
+  );
   INSERT OR IGNORE INTO meta (key, value) VALUES ('version', 1);
 `);
 
@@ -72,6 +81,10 @@ if (!hasColumn('items', 'done_by')) db.exec(`ALTER TABLE items ADD COLUMN done_b
 if (!hasColumn('items', 'qty')) db.exec(`ALTER TABLE items ADD COLUMN qty TEXT NOT NULL DEFAULT ''`);
 if (!hasColumn('items', 'grp')) db.exec(`ALTER TABLE items ADD COLUMN grp TEXT`);
 
+// Items already on shopping lists count as history too, so autofill works from day one.
+db.exec(`INSERT OR IGNORE INTO history (key, text, qty, grp, count, last)
+  SELECT lower(trim(i.text)), i.text, i.qty, i.grp, 1, i.created FROM items i JOIN lists l ON l.id = i.list_id WHERE l.kind = 'shopping'`);
+
 const sql = {
   version: db.prepare(`SELECT value FROM meta WHERE key = 'version'`),
   bump: db.prepare(`UPDATE meta SET value = value + 1 WHERE key = 'version'`),
@@ -85,6 +98,12 @@ const sql = {
   addItem: db.prepare(`INSERT OR IGNORE INTO items (id, list_id, text, created, added_by, qty, grp) SELECT ?, id, ?, ?, ?, ?, ? FROM lists WHERE id = ?`),
   setQty: db.prepare(`UPDATE items SET qty = ? WHERE id = ?`),
   setGroup: db.prepare(`UPDATE items SET grp = ? WHERE id = ?`),
+  listKind: db.prepare(`SELECT kind FROM lists WHERE id = ?`),
+  shoppingItem: db.prepare(`SELECT i.text, i.qty, i.grp FROM items i JOIN lists l ON l.id = i.list_id WHERE i.id = ? AND l.kind = 'shopping'`),
+  remember: db.prepare(`INSERT INTO history (key, text, qty, grp, count, last) VALUES (?, ?, ?, ?, 1, ?)
+    ON CONFLICT(key) DO UPDATE SET text = excluded.text, qty = excluded.qty, grp = excluded.grp, count = count + 1, last = excluded.last`),
+  refine: db.prepare(`UPDATE history SET qty = ?, grp = ? WHERE key = ?`),
+  history: db.prepare(`SELECT text, qty, grp, count FROM history ORDER BY last DESC LIMIT 800`),
   editItem: db.prepare(`UPDATE items SET text = ? WHERE id = ?`),
   checkItem: db.prepare(`UPDATE items SET done = ?, done_at = ?, done_by = ? WHERE id = ?`),
   deleteItem: db.prepare(`DELETE FROM items WHERE id = ?`),
@@ -101,7 +120,7 @@ function snapshot(who) {
     .map((list) => ({ ...list, shared: list.shared === 1, items: [] }));
   const byId = new Map(lists.map((list) => [list.id, list]));
   for (const item of sql.items.all()) byId.get(item.listId)?.items.push({ ...item, done: item.done === 1 });
-  return { version: version(), lists };
+  return { version: version(), lists, history: sql.history.all() };
 }
 
 // The app sends changes as a queue of small operations, so edits made offline can be replayed later.
@@ -109,6 +128,7 @@ function snapshot(who) {
 const id = (value) => typeof value === 'string' && /^[\w-]{1,64}$/.test(value);
 const text = (value) => (typeof value === 'string' ? value.trim().slice(0, MAX_TEXT) : '');
 const qty = (value) => (typeof value === 'string' ? value.trim().slice(0, 40) : '');
+const historyKey = (value) => text(value).toLowerCase().replace(/\s+/g, ' ');
 const group = (value) => (GROUPS.includes(value) ? value : null);
 const person = (value) => (PEOPLE.includes(value) ? value : null);
 const time = (value) => (Number.isFinite(value) && value > 0 ? Math.floor(value) : Date.now());
@@ -119,12 +139,19 @@ const OPS = {
   renameList: (op) => id(op.id) && text(op.name) && sql.renameList.run(text(op.name), op.id),
   setTheme: (op) => id(op.id) && Number.isInteger(op.theme) && op.theme >= 0 && sql.setTheme.run(op.theme, op.id),
   deleteList: (op) => id(op.id) && sql.deleteList.run(op.id),
-  addItem: (op) => id(op.id) && id(op.listId) && text(op.text) && sql.addItem.run(op.id, text(op.text), time(op.at), person(op.by), qty(op.qty), group(op.grp), op.listId),
+  addItem: (op) => {
+    if (!id(op.id) || !id(op.listId) || !text(op.text)) return;
+    const added = sql.addItem.run(op.id, text(op.text), time(op.at), person(op.by), qty(op.qty), group(op.grp), op.listId);
+    if (added.changes && sql.listKind.get(op.listId)?.kind === 'shopping') sql.remember.run(historyKey(op.text), text(op.text), qty(op.qty), group(op.grp), time(op.at));
+  },
   editItem: (op) => {
     if (!id(op.id) || !text(op.text)) return;
     sql.editItem.run(text(op.text), op.id);
     if (typeof op.qty === 'string') sql.setQty.run(qty(op.qty), op.id); // only when the edit includes a quantity
     if (typeof op.grp === 'string') sql.setGroup.run(group(op.grp), op.id);
+    // A correction to a shopping item's quantity or group is remembered for next time.
+    const item = sql.shoppingItem.get(op.id);
+    if (item) sql.refine.run(item.qty, item.grp, historyKey(item.text));
   },
   checkItem: (op) => id(op.id) && sql.checkItem.run(op.done ? 1 : 0, op.done ? time(op.at) : null, op.done ? person(op.by) : null, op.id),
   deleteItem: (op) => id(op.id) && sql.deleteItem.run(op.id),

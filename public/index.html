@@ -17,7 +17,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=7" />
+    <link rel="stylesheet" href="styles.css?v=8" />
   </head>
   <body data-view="home">
     <main class="shell">
@@ -63,11 +63,15 @@
 
       <!-- one list -->
       <section class="list" id="list">
-        <form class="add" id="add-form" autocomplete="off">
-          <span class="add-plus" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg></span>
-          <input id="add-input" name="text" maxlength="500" placeholder="Add an item" aria-label="New item" enterkeyhint="done" />
-          <button type="submit" class="add-go" aria-label="Add">Add</button>
-        </form>
+        <div class="add-wrap">
+          <form class="add" id="add-form" autocomplete="off">
+            <span class="add-plus" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg></span>
+            <input id="add-input" name="text" maxlength="500" placeholder="Add an item" aria-label="New item" enterkeyhint="done" />
+            <button type="submit" class="add-go" aria-label="Add">Add</button>
+          </form>
+          <!-- shopping lists: things you've bought before -->
+          <div class="suggest" id="suggest" role="group" aria-label="Suggestions" hidden></div>
+        </div>
         <ul class="items" id="todo" aria-label="To do"></ul>
         <p class="empty" id="empty"></p>
         <div class="done-head" id="done-head">
@@ -154,6 +158,6 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"><span id="toast-text"></span><button type="button" id="toast-undo" hidden>Undo</button></div>
     <script src="groups.js?v=1"></script>
-    <script src="app.js?v=7"></script>
+    <script src="app.js?v=8"></script>
   </body>
 </html>

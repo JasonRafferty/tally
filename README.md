@@ -16,6 +16,11 @@ the done ones. Every phone that opens it shares the same lists, and they stay in
 - Deletes can be undone from the message at the bottom.
 - **To-do and Shopping:** swipe sideways (or tap the switch) on the Lists screen. A new list gets the
   type of the view you're in.
+- **Shopping lists** split items under aisle headings (Fruit & veg, Dairy & eggs, …) guessed from the
+  name; change one from the item's pencil and it's remembered. Type a quantity with the item ("2 milk",
+  "eggs x12", "500g pasta") and it shows underneath. Suggestions appear as you type, with your usual
+  quantity and group, and a **Buy again** row shows when the box is empty. Re-adding something already
+  ticked on the list just unticks it.
 - **Jason and Wah:** each phone asks "Who's this?" once, and tap *Switch* at the bottom of the Lists
   screen to change it. A phone only gets its own lists plus shared ones. Switch on **Share with…** in
   a list's `⋯` menu to put it under **Together** on both phones, where each card shows the latest
