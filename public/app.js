@@ -501,11 +501,11 @@ function newList() {
   } });
 }
 
-// Give each new list a colour no other list is using yet, while there are some left.
+// A new list gets a random colour, just not the same as the list made before it.
 function nextTheme() {
-  const used = lists.map((list) => list.theme % THEMES.length);
-  const free = THEMES.findIndex((_, i) => !used.includes(i));
-  return free >= 0 ? free : lists.length % THEMES.length;
+  const last = lists.at(-1)?.theme % THEMES.length;
+  const choices = THEMES.map((_, i) => i).filter((i) => i !== last);
+  return choices[Math.floor(Math.random() * choices.length)];
 }
 
 function listMenu(list) {

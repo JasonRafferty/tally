@@ -99,6 +99,15 @@ body[data-view="list"] .grid, body[data-view="home"] .list { display: none; }
 .tile.pinned .count.all-done { background: #fff; color: var(--gb); }
 .tile.pinned .bar { background: rgba(255, 255, 255, .25); }
 .tile.pinned .bar span { background: #fff; }
+
+/* every list tile is its own colour, like App Drawer's featured tile */
+.tile[data-list] { background: linear-gradient(150deg, var(--ga), var(--gb)); color: #fff; box-shadow: 0 12px 24px -18px rgba(18, 24, 38, .5); }
+.tile[data-list] .icon { background: rgba(255, 255, 255, .96); color: var(--gb); }
+.tile[data-list] .copy small { color: rgba(255, 255, 255, .85); }
+.tile[data-list] .count { background: rgba(255, 255, 255, .22); color: #fff; }
+.tile[data-list] .count.all-done { background: #fff; color: var(--gb); }
+.tile[data-list] .bar { background: rgba(255, 255, 255, .25); }
+.tile[data-list] .bar span { background: #fff; }
 .pin-mark { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: rgba(255, 255, 255, .22); }
 .pin-mark svg { width: 14px; height: 14px; fill: none; stroke: #fff; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .peek { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
