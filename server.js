@@ -68,18 +68,20 @@ if (!hasColumn('lists', 'owner')) db.exec(`ALTER TABLE lists ADD COLUMN owner TE
 if (!hasColumn('lists', 'shared')) db.exec(`ALTER TABLE lists ADD COLUMN shared INTEGER NOT NULL DEFAULT 0`);
 if (!hasColumn('items', 'added_by')) db.exec(`ALTER TABLE items ADD COLUMN added_by TEXT`);
 if (!hasColumn('items', 'done_by')) db.exec(`ALTER TABLE items ADD COLUMN done_by TEXT`);
+if (!hasColumn('items', 'qty')) db.exec(`ALTER TABLE items ADD COLUMN qty TEXT NOT NULL DEFAULT ''`);
 
 const sql = {
   version: db.prepare(`SELECT value FROM meta WHERE key = 'version'`),
   bump: db.prepare(`UPDATE meta SET value = value + 1 WHERE key = 'version'`),
   lists: db.prepare(`SELECT id, name, kind, owner, shared, theme, created FROM lists ORDER BY created`),
-  items: db.prepare(`SELECT id, list_id AS listId, text, done, created, done_at AS doneAt, added_by AS addedBy, done_by AS doneBy FROM items ORDER BY created`),
+  items: db.prepare(`SELECT id, list_id AS listId, text, done, created, done_at AS doneAt, added_by AS addedBy, done_by AS doneBy, qty FROM items ORDER BY created`),
   addList: db.prepare(`INSERT OR IGNORE INTO lists (id, name, kind, owner, shared, theme, created) VALUES (?, ?, ?, ?, ?, ?, ?)`),
   setShared: db.prepare(`UPDATE lists SET shared = ? WHERE id = ?`),
   renameList: db.prepare(`UPDATE lists SET name = ? WHERE id = ?`),
   setTheme: db.prepare(`UPDATE lists SET theme = ? WHERE id = ?`),
   deleteList: db.prepare(`DELETE FROM lists WHERE id = ?`),
-  addItem: db.prepare(`INSERT OR IGNORE INTO items (id, list_id, text, created, added_by) SELECT ?, id, ?, ?, ? FROM lists WHERE id = ?`),
+  addItem: db.prepare(`INSERT OR IGNORE INTO items (id, list_id, text, created, added_by, qty) SELECT ?, id, ?, ?, ?, ? FROM lists WHERE id = ?`),
+  setQty: db.prepare(`UPDATE items SET qty = ? WHERE id = ?`),
   editItem: db.prepare(`UPDATE items SET text = ? WHERE id = ?`),
   checkItem: db.prepare(`UPDATE items SET done = ?, done_at = ?, done_by = ? WHERE id = ?`),
   deleteItem: db.prepare(`DELETE FROM items WHERE id = ?`),
@@ -103,6 +105,7 @@ function snapshot(who) {
 // Each one is safe to apply twice, and changes to things that were deleted elsewhere are skipped.
 const id = (value) => typeof value === 'string' && /^[\w-]{1,64}$/.test(value);
 const text = (value) => (typeof value === 'string' ? value.trim().slice(0, MAX_TEXT) : '');
+const qty = (value) => (typeof value === 'string' ? value.trim().slice(0, 40) : '');
 const person = (value) => (PEOPLE.includes(value) ? value : null);
 const time = (value) => (Number.isFinite(value) && value > 0 ? Math.floor(value) : Date.now());
 
@@ -112,8 +115,12 @@ const OPS = {
   renameList: (op) => id(op.id) && text(op.name) && sql.renameList.run(text(op.name), op.id),
   setTheme: (op) => id(op.id) && Number.isInteger(op.theme) && op.theme >= 0 && sql.setTheme.run(op.theme, op.id),
   deleteList: (op) => id(op.id) && sql.deleteList.run(op.id),
-  addItem: (op) => id(op.id) && id(op.listId) && text(op.text) && sql.addItem.run(op.id, text(op.text), time(op.at), person(op.by), op.listId),
-  editItem: (op) => id(op.id) && text(op.text) && sql.editItem.run(text(op.text), op.id),
+  addItem: (op) => id(op.id) && id(op.listId) && text(op.text) && sql.addItem.run(op.id, text(op.text), time(op.at), person(op.by), qty(op.qty), op.listId),
+  editItem: (op) => {
+    if (!id(op.id) || !text(op.text)) return;
+    sql.editItem.run(text(op.text), op.id);
+    if (typeof op.qty === 'string') sql.setQty.run(qty(op.qty), op.id); // only when the edit includes a quantity
+  },
   checkItem: (op) => id(op.id) && sql.checkItem.run(op.done ? 1 : 0, op.done ? time(op.at) : null, op.done ? person(op.by) : null, op.id),
   deleteItem: (op) => id(op.id) && sql.deleteItem.run(op.id),
   clearDone: (op) => id(op.listId) && sql.clearDone.run(op.listId),

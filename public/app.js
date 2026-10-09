@@ -52,9 +52,9 @@ const OPS = {
   deleteList: (all, op) => { const i = all.findIndex((l) => l.id === op.id); if (i >= 0) all.splice(i, 1); },
   addItem: (all, op) => {
     const list = all.find((l) => l.id === op.listId);
-    if (list && !list.items.some((item) => item.id === op.id)) list.items.push({ id: op.id, listId: op.listId, text: op.text, done: false, created: op.at, doneAt: null, addedBy: op.by ?? null, doneBy: null });
+    if (list && !list.items.some((item) => item.id === op.id)) list.items.push({ id: op.id, listId: op.listId, text: op.text, qty: op.qty ?? '', done: false, created: op.at, doneAt: null, addedBy: op.by ?? null, doneBy: null });
   },
-  editItem: (all, op) => { const item = findItem(all, op.id); if (item) item.text = op.text; },
+  editItem: (all, op) => { const item = findItem(all, op.id); if (item) { item.text = op.text; if (typeof op.qty === 'string') item.qty = op.qty; } },
   checkItem: (all, op) => { const item = findItem(all, op.id); if (item) Object.assign(item, { done: op.done, doneAt: op.done ? op.at : null, doneBy: op.done ? op.by ?? null : null }); },
   deleteItem: (all, op) => { for (const list of all) list.items = list.items.filter((item) => item.id !== op.id); },
   clearDone: (all, op) => { const list = all.find((l) => l.id === op.listId); if (list) list.items = list.items.filter((item) => !item.done); },
@@ -272,7 +272,7 @@ function itemRow(item, fresh, shared) {
   const by = shared && PEOPLE[item.addedBy] ? `<span class="by ${item.addedBy === 'wah' ? 'w' : 'j'}" title="Added by ${PEOPLE[item.addedBy].name}">${PEOPLE[item.addedBy].initial}</span>` : '';
   return `<li class="item${item.done ? ' is-done' : ''}${fresh ? ' arrive' : ''}" data-item="${escapeHtml(item.id)}">
     <button type="button" class="check" role="checkbox" aria-checked="${item.done}" data-toggle>
-      <span class="box">${TICK}</span><span class="item-text">${escapeHtml(item.text)}</span>
+      <span class="box">${TICK}</span><span class="item-main"><span class="item-text">${escapeHtml(item.text)}</span>${item.qty ? `<span class="qty">${escapeHtml(item.qty)}</span>` : ''}</span>
     </button>${by}
     <button type="button" class="edit" data-edit aria-label="Edit ${escapeHtml(item.text)}">${PENCIL}</button>
   </li>`;
@@ -387,7 +387,8 @@ let sheetActions = null;
 const swatches = $('#swatches');
 const pinToggle = $('#pin-toggle');
 const shareToggle = $('#share-toggle');
-function openSheet({ title, value = '', placeholder = '', theme, pinned, shared, onSave, onDelete }) {
+const qtyField = $('#edit-qty');
+function openSheet({ title, value = '', placeholder = '', qty, theme, pinned, shared, onSave, onDelete }) {
   sheetActions = { onSave, onDelete };
   $('#edit-title').textContent = title;
   editForm.text.value = value;
@@ -397,6 +398,8 @@ function openSheet({ title, value = '', placeholder = '', theme, pinned, shared,
   swatches.innerHTML = THEMES.map(([a, b], i) => `<button type="button" role="radio" aria-checked="${i === theme}" aria-label="Colour ${i + 1}" data-theme="${i}" style="--ga:${a};--gb:${b}">${TICK}</button>`).join('');
   pinToggle.hidden = pinned === undefined;
   pinToggle.setAttribute('aria-pressed', Boolean(pinned));
+  qtyField.hidden = qty === undefined;
+  qtyField.value = qty ?? '';
   shareToggle.hidden = shared === undefined;
   shareToggle.setAttribute('aria-pressed', Boolean(shared));
   $('#share-title').textContent = me ? `Share with ${PEOPLE[otherPerson()].name}` : 'Share';
@@ -417,7 +420,7 @@ editForm.addEventListener('submit', () => {
   const theme = Number(swatches.querySelector('[aria-checked="true"]')?.dataset.theme);
   // A switch that isn't on show for this sheet reports nothing, so it can't change anything.
   const on = (button) => (button.hidden ? undefined : button.getAttribute('aria-pressed') === 'true');
-  if (value) sheetActions?.onSave(value, { theme, pinned: on(pinToggle), shared: on(shareToggle) });
+  if (value) sheetActions?.onSave(value, { theme, pinned: on(pinToggle), shared: on(shareToggle), qty: qtyField.hidden ? undefined : qtyField.value.trim() });
 });
 editSheet.querySelector('[data-sheet-cancel]').addEventListener('click', () => editSheet.close());
 editSheet.querySelector('[data-sheet-delete]').addEventListener('click', () => { editSheet.close(); sheetActions?.onDelete(); });
@@ -464,7 +467,11 @@ function listMenu(list) {
 }
 
 function itemMenu(item) {
-  openSheet({ title: 'Edit item', value: item.text, onSave: (text) => { change({ type: 'editItem', id: item.id, text }); render(); }, onDelete: () => {
+  const shopping = kindOf(lists.find((list) => list.id === item.listId)) === 'shopping';
+  openSheet({ title: 'Edit item', value: item.text, qty: shopping ? item.qty ?? '' : undefined, onSave: (text, { qty }) => {
+    change({ type: 'editItem', id: item.id, text, ...(qty !== undefined && { qty }) });
+    render();
+  }, onDelete: () => {
     const saved = { ...item };
     change({ type: 'deleteItem', id: item.id });
     render();
@@ -474,7 +481,7 @@ function itemMenu(item) {
 
 // Undo puts things back with their original ids and dates.
 const restoreItems = (items) => items.flatMap((item) => [
-  { type: 'addItem', id: item.id, listId: item.listId, text: item.text, by: item.addedBy, at: item.created },
+  { type: 'addItem', id: item.id, listId: item.listId, text: item.text, qty: item.qty, by: item.addedBy, at: item.created },
   ...(item.done ? [{ type: 'checkItem', id: item.id, done: true, by: item.doneBy, at: item.doneAt }] : []),
 ]);
 const restoreList = (list) => [{ type: 'addList', id: list.id, name: list.name, kind: kindOf(list), by: ownerOf(list), shared: Boolean(list.shared), theme: list.theme, at: list.created }, ...restoreItems(list.items)];
@@ -544,6 +551,22 @@ $('#toast-undo').addEventListener('click', () => {
 });
 
 // --- events ----------------------------------------------------------------------------------
+// Shopping lists pull a quantity out of what you type: "2 milk", "milk x2", "500g pasta", "milk 2L".
+const UNIT = '(?:kg|g|l|ml|lb|oz|packs?|pk|tins?|cans?|bottles?|loaves|loaf|bags?|boxes|box|dozen)';
+function parseQuantity(input) {
+  const text = input.trim();
+  let match = text.match(/^(.+?)\s*[x×]\s*(\d+(?:\.\d+)?)$/i); // milk x2
+  if (match) return { text: match[1].trim(), qty: `×${match[2]}` };
+  match = text.match(/^(\d+(?:\.\d+)?)\s*[x×]\s+(.+)$/i); // 2x milk
+  if (match) return { text: match[2].trim(), qty: `×${match[1]}` };
+  match = text.match(new RegExp(`^(\\d+(?:\\.\\d+)?\\s*${UNIT})(?:\\s+of)?\\s+(.+)$`, 'i')) // 500g pasta, 2 packs rice
+    || text.match(/^(\d+(?:\.\d+)?)\s+(.+)$/); // 2 milk
+  if (match) return { text: match[2].trim(), qty: match[1].replace(/\s+/g, ' ').trim() };
+  match = text.match(new RegExp(`^(.+?)\\s+(\\d+(?:\\.\\d+)?\\s*${UNIT})$`, 'i')); // milk 2L
+  if (match) return { text: match[1].trim(), qty: match[2].replace(/\s+/g, ' ').trim() };
+  return { text, qty: '' };
+}
+
 const addForm = $('#add-form');
 const addInput = $('#add-input');
 addInput.addEventListener('input', () => addForm.classList.toggle('has-text', addInput.value.trim() !== ''));
@@ -552,7 +575,8 @@ addForm.addEventListener('submit', (event) => {
   const list = currentList();
   const text = addInput.value.trim();
   if (!list || !text) return;
-  change({ type: 'addItem', id: newId(), listId: list.id, text });
+  const { text: name, qty } = kindOf(list) === 'shopping' ? parseQuantity(text) : { text, qty: '' };
+  change({ type: 'addItem', id: newId(), listId: list.id, text: name, qty });
   addInput.value = '';
   addForm.classList.remove('has-text');
   render();

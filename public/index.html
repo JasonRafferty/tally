@@ -17,7 +17,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=5" />
+    <link rel="stylesheet" href="styles.css?v=6" />
   </head>
   <body data-view="home">
     <main class="shell">
@@ -109,6 +109,7 @@
       <form method="dialog" class="sheet-panel" id="edit-form" autocomplete="off">
         <h2 id="edit-title"></h2>
         <input name="text" maxlength="500" aria-labelledby="edit-title" enterkeyhint="done" required />
+        <input name="qty" id="edit-qty" maxlength="40" placeholder="Quantity, e.g. 2 or 500 g" aria-label="Quantity" enterkeyhint="done" hidden />
         <!-- list options only: colour and pin -->
         <div class="swatches" id="swatches" role="radiogroup" aria-label="Colour"></div>
         <button type="button" class="pin-toggle" id="pin-toggle" aria-pressed="false">
@@ -151,6 +152,6 @@
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"><span id="toast-text"></span><button type="button" id="toast-undo" hidden>Undo</button></div>
-    <script src="app.js?v=5"></script>
+    <script src="app.js?v=6"></script>
   </body>
 </html>
