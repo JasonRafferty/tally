@@ -25,6 +25,7 @@ const PASSWORD = process.env.APP_PASSWORD || '';
 const COOKIE = 'checklist_session';
 const MAX_BODY = 256 * 1024;
 const MAX_TEXT = 500;
+const PEOPLE = ['jason', 'wah'];
 
 // --- storage ------------------------------------------------------------------------------
 mkdirSync(DATA_DIR, { recursive: true });
@@ -62,27 +63,37 @@ db.exec(`
 // Upgrades: databases made before a column existed get it added, with a safe default.
 const hasColumn = (table, column) => db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
 if (!hasColumn('lists', 'kind')) db.exec(`ALTER TABLE lists ADD COLUMN kind TEXT NOT NULL DEFAULT 'todo'`);
+// Lists made before owners existed belong to Jason and stay private to him.
+if (!hasColumn('lists', 'owner')) db.exec(`ALTER TABLE lists ADD COLUMN owner TEXT NOT NULL DEFAULT 'jason'`);
+if (!hasColumn('lists', 'shared')) db.exec(`ALTER TABLE lists ADD COLUMN shared INTEGER NOT NULL DEFAULT 0`);
+if (!hasColumn('items', 'added_by')) db.exec(`ALTER TABLE items ADD COLUMN added_by TEXT`);
+if (!hasColumn('items', 'done_by')) db.exec(`ALTER TABLE items ADD COLUMN done_by TEXT`);
 
 const sql = {
   version: db.prepare(`SELECT value FROM meta WHERE key = 'version'`),
   bump: db.prepare(`UPDATE meta SET value = value + 1 WHERE key = 'version'`),
-  lists: db.prepare(`SELECT id, name, kind, theme, created FROM lists ORDER BY created`),
-  items: db.prepare(`SELECT id, list_id AS listId, text, done, created, done_at AS doneAt FROM items ORDER BY created`),
-  addList: db.prepare(`INSERT OR IGNORE INTO lists (id, name, kind, theme, created) VALUES (?, ?, ?, ?, ?)`),
+  lists: db.prepare(`SELECT id, name, kind, owner, shared, theme, created FROM lists ORDER BY created`),
+  items: db.prepare(`SELECT id, list_id AS listId, text, done, created, done_at AS doneAt, added_by AS addedBy, done_by AS doneBy FROM items ORDER BY created`),
+  addList: db.prepare(`INSERT OR IGNORE INTO lists (id, name, kind, owner, shared, theme, created) VALUES (?, ?, ?, ?, ?, ?, ?)`),
+  setShared: db.prepare(`UPDATE lists SET shared = ? WHERE id = ?`),
   renameList: db.prepare(`UPDATE lists SET name = ? WHERE id = ?`),
   setTheme: db.prepare(`UPDATE lists SET theme = ? WHERE id = ?`),
   deleteList: db.prepare(`DELETE FROM lists WHERE id = ?`),
-  addItem: db.prepare(`INSERT OR IGNORE INTO items (id, list_id, text, created) SELECT ?, id, ?, ? FROM lists WHERE id = ?`),
+  addItem: db.prepare(`INSERT OR IGNORE INTO items (id, list_id, text, created, added_by) SELECT ?, id, ?, ?, ? FROM lists WHERE id = ?`),
   editItem: db.prepare(`UPDATE items SET text = ? WHERE id = ?`),
-  checkItem: db.prepare(`UPDATE items SET done = ?, done_at = ? WHERE id = ?`),
+  checkItem: db.prepare(`UPDATE items SET done = ?, done_at = ?, done_by = ? WHERE id = ?`),
   deleteItem: db.prepare(`DELETE FROM items WHERE id = ?`),
   clearDone: db.prepare(`DELETE FROM items WHERE list_id = ? AND done = 1`),
 };
 
 const version = () => sql.version.get().value;
 
-function snapshot() {
-  const lists = sql.lists.all().map((list) => ({ ...list, items: [] }));
+// Each phone only gets its own person's lists and the shared ones. This keeps lists tidy and apart;
+// it is not a lock, because there are no sign-ins (a phone just says who it is).
+function snapshot(who) {
+  const lists = sql.lists.all()
+    .filter((list) => list.shared === 1 || list.owner === who)
+    .map((list) => ({ ...list, shared: list.shared === 1, items: [] }));
   const byId = new Map(lists.map((list) => [list.id, list]));
   for (const item of sql.items.all()) byId.get(item.listId)?.items.push({ ...item, done: item.done === 1 });
   return { version: version(), lists };
@@ -92,16 +103,18 @@ function snapshot() {
 // Each one is safe to apply twice, and changes to things that were deleted elsewhere are skipped.
 const id = (value) => typeof value === 'string' && /^[\w-]{1,64}$/.test(value);
 const text = (value) => (typeof value === 'string' ? value.trim().slice(0, MAX_TEXT) : '');
+const person = (value) => (PEOPLE.includes(value) ? value : null);
 const time = (value) => (Number.isFinite(value) && value > 0 ? Math.floor(value) : Date.now());
 
 const OPS = {
-  addList: (op) => id(op.id) && text(op.name) && sql.addList.run(op.id, text(op.name), op.kind === 'shopping' ? 'shopping' : 'todo', Number(op.theme) || 0, time(op.at)),
+  addList: (op) => id(op.id) && text(op.name) && sql.addList.run(op.id, text(op.name), op.kind === 'shopping' ? 'shopping' : 'todo', person(op.by) ?? 'jason', op.shared ? 1 : 0, Number(op.theme) || 0, time(op.at)),
+  setShared: (op) => id(op.id) && sql.setShared.run(op.shared ? 1 : 0, op.id),
   renameList: (op) => id(op.id) && text(op.name) && sql.renameList.run(text(op.name), op.id),
   setTheme: (op) => id(op.id) && Number.isInteger(op.theme) && op.theme >= 0 && sql.setTheme.run(op.theme, op.id),
   deleteList: (op) => id(op.id) && sql.deleteList.run(op.id),
-  addItem: (op) => id(op.id) && id(op.listId) && text(op.text) && sql.addItem.run(op.id, text(op.text), time(op.at), op.listId),
+  addItem: (op) => id(op.id) && id(op.listId) && text(op.text) && sql.addItem.run(op.id, text(op.text), time(op.at), person(op.by), op.listId),
   editItem: (op) => id(op.id) && text(op.text) && sql.editItem.run(text(op.text), op.id),
-  checkItem: (op) => id(op.id) && sql.checkItem.run(op.done ? 1 : 0, op.done ? time(op.at) : null, op.id),
+  checkItem: (op) => id(op.id) && sql.checkItem.run(op.done ? 1 : 0, op.done ? time(op.at) : null, op.done ? person(op.by) : null, op.id),
   deleteItem: (op) => id(op.id) && sql.deleteItem.run(op.id),
   clearDone: (op) => id(op.listId) && sql.clearDone.run(op.listId),
 };
@@ -174,17 +187,18 @@ async function api(req, res, path) {
     return send(res, 204, undefined, { 'Set-Cookie': sessionCookie(req) });
   }
   if (!signedIn(req)) return send(res, 401, { error: 'Sign in first' });
+  const who = person(req.headers['x-who']);
 
   if (path === '/api/state' && req.method === 'GET') {
     // Cheap polling: the app passes the version it has, and gets 204 if nothing changed.
     const since = Number(new URL(req.url, 'http://x').searchParams.get('since'));
-    return since === version() ? send(res, 204) : send(res, 200, snapshot());
+    return since === version() ? send(res, 204) : send(res, 200, snapshot(who));
   }
   if (path === '/api/ops' && req.method === 'POST') {
     const { ops } = await readJson(req);
     if (!Array.isArray(ops) || ops.length > 500) return send(res, 400, { error: 'Expected a list of changes' });
     applyOps(ops);
-    return send(res, 200, snapshot());
+    return send(res, 200, snapshot(who));
   }
   return send(res, 404, { error: 'Not found' });
 }

@@ -26,6 +26,13 @@ const store = {
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const newId = () => crypto.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 const themeOf = (list) => THEMES[(list?.theme ?? 0) % THEMES.length];
+// Two people share this app. Each phone says which one it is, and that decides which lists it shows.
+const PEOPLE = { jason: { name: 'Jason', initial: 'J' }, wah: { name: 'Wah', initial: 'W' } };
+let me = PEOPLE[store.get('checklist-me', null)] ? store.get('checklist-me', null) : null;
+const otherPerson = () => (me === 'jason' ? 'wah' : 'jason');
+const ownerOf = (list) => (PEOPLE[list?.owner] ? list.owner : 'jason'); // older lists belong to Jason
+const visible = (list) => Boolean(list.shared) || ownerOf(list) === me;
+const nameOf = (by) => (by === me ? 'You' : PEOPLE[by]?.name ?? 'Someone');
 const kindOf = (list) => (list?.kind === 'shopping' ? 'shopping' : 'todo');
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
@@ -38,16 +45,17 @@ let lists = [];
 let loaded = server.version > 0;
 
 const OPS = {
-  addList: (all, op) => { if (!all.some((l) => l.id === op.id)) all.push({ id: op.id, name: op.name, kind: op.kind === 'shopping' ? 'shopping' : 'todo', theme: op.theme, created: op.at, items: [] }); },
+  addList: (all, op) => { if (!all.some((l) => l.id === op.id)) all.push({ id: op.id, name: op.name, kind: op.kind === 'shopping' ? 'shopping' : 'todo', owner: PEOPLE[op.by] ? op.by : 'jason', shared: Boolean(op.shared), theme: op.theme, created: op.at, items: [] }); },
   renameList: (all, op) => { const list = all.find((l) => l.id === op.id); if (list) list.name = op.name; },
+  setShared: (all, op) => { const list = all.find((l) => l.id === op.id); if (list) list.shared = Boolean(op.shared); },
   setTheme: (all, op) => { const list = all.find((l) => l.id === op.id); if (list) list.theme = op.theme; },
   deleteList: (all, op) => { const i = all.findIndex((l) => l.id === op.id); if (i >= 0) all.splice(i, 1); },
   addItem: (all, op) => {
     const list = all.find((l) => l.id === op.listId);
-    if (list && !list.items.some((item) => item.id === op.id)) list.items.push({ id: op.id, listId: op.listId, text: op.text, done: false, created: op.at, doneAt: null });
+    if (list && !list.items.some((item) => item.id === op.id)) list.items.push({ id: op.id, listId: op.listId, text: op.text, done: false, created: op.at, doneAt: null, addedBy: op.by ?? null, doneBy: null });
   },
   editItem: (all, op) => { const item = findItem(all, op.id); if (item) item.text = op.text; },
-  checkItem: (all, op) => { const item = findItem(all, op.id); if (item) Object.assign(item, { done: op.done, doneAt: op.done ? op.at : null }); },
+  checkItem: (all, op) => { const item = findItem(all, op.id); if (item) Object.assign(item, { done: op.done, doneAt: op.done ? op.at : null, doneBy: op.done ? op.by ?? null : null }); },
   deleteItem: (all, op) => { for (const list of all) list.items = list.items.filter((item) => item.id !== op.id); },
   clearDone: (all, op) => { const list = all.find((l) => l.id === op.listId); if (list) list.items = list.items.filter((item) => !item.done); },
 };
@@ -63,7 +71,7 @@ function rebuild() {
 // Make a change: show it straight away, then save it to the server in the background.
 function change(...ops) {
   const at = Date.now();
-  for (const op of ops) outbox.push({ at, ...op });
+  for (const op of ops) outbox.push({ at, by: me, ...op });
   store.set('checklist-outbox', outbox);
   rebuild();
   push();
@@ -74,7 +82,7 @@ let pushing = false;
 let online = true;
 
 async function request(path, options) {
-  const res = await fetch(path, { credentials: 'same-origin', cache: 'no-store', ...options });
+  const res = await fetch(path, { credentials: 'same-origin', cache: 'no-store', ...options, headers: { ...(me && { 'X-Who': me }), ...options?.headers } });
   if (res.status === 401) { askForPassword(); throw new Error('signed out'); }
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.status === 204 ? null : res.json();
@@ -88,6 +96,7 @@ function accept(snapshot) {
 }
 
 async function pull() {
+  if (!me) return;
   if (pushing || outbox.length) return push();
   try {
     const snapshot = await request(`/api/state?since=${server.version}`);
@@ -98,7 +107,7 @@ async function pull() {
 }
 
 async function push() {
-  if (pushing || !outbox.length) return showStatus();
+  if (!me || pushing || !outbox.length) return showStatus();
   pushing = true;
   showStatus();
   const batch = outbox.slice(0, 200);
@@ -133,7 +142,7 @@ function statusLine() {
     const left = list.items.filter((item) => !item.done).length;
     return list.items.length ? (left ? `${left} left of ${list.items.length}` : 'All done') : 'Synced';
   }
-  const shown = lists.filter((l) => kindOf(l) === view);
+  const shown = lists.filter((l) => kindOf(l) === view && visible(l));
   const left = shown.reduce((sum, l) => sum + l.items.filter((item) => !item.done).length, 0);
   return shown.length ? (view === 'shopping' ? `${left} to buy` : `${plural(left, 'item')} to do`) : 'Synced';
 }
@@ -155,7 +164,7 @@ function setPinned(listId, pinned) {
 // Which type of list the home screen shows. Swipe or tap the switch to change it.
 let view = store.get('checklist-kind', 'todo') === 'shopping' ? 'shopping' : 'todo';
 const sortedLists = () => {
-  const mine = lists.filter((list) => kindOf(list) === view);
+  const mine = lists.filter((list) => kindOf(list) === view && !list.shared && visible(list));
   return [
     ...pins.map((p) => mine.find((list) => list.id === p)).filter(Boolean),
     ...mine.filter((list) => !isPinned(list)),
@@ -200,10 +209,38 @@ function scheduleRender(delay = 0) {
   renderTimer = setTimeout(render, delay);
 }
 
+// The latest change on a shared list: who added or ticked what, and when.
+function latestActivity(list) {
+  const events = list.items.flatMap((item) => [
+    { at: item.created, by: item.addedBy, verb: 'added', text: item.text },
+    ...(item.done && item.doneAt ? [{ at: item.doneAt, by: item.doneBy, verb: 'ticked', text: item.text }] : []),
+  ]);
+  if (!events.length) return { at: list.created, html: 'No items yet' };
+  const last = events.reduce((a, b) => (b.at > a.at ? b : a));
+  return { at: last.at, html: `<em>${escapeHtml(nameOf(last.by))}</em> ${last.verb} ${escapeHtml(last.text)}` };
+}
+function ago(at) {
+  const minutes = Math.floor((Date.now() - at) / 60000);
+  return minutes < 1 ? 'now' : minutes < 60 ? `${minutes}m` : minutes < 1440 ? `${Math.floor(minutes / 60)}h` : `${Math.floor(minutes / 1440)}d`;
+}
+
 function renderHome() {
   shownList = null;
   $('#lists').classList.toggle('selecting', Boolean(selected));
   updateSelectBar();
+
+  const together = lists.filter((list) => kindOf(list) === view && list.shared).map((list) => ({ list, activity: latestActivity(list) })).sort((x, y) => y.activity.at - x.activity.at);
+  $('#together-wrap').hidden = !together.length;
+  $('#together').innerHTML = together.map(({ list, activity }, i) => {
+    const left = list.items.filter((item) => !item.done).length;
+    const picked = selected?.has(list.id);
+    return `<button type="button" class="card${picked ? ' selected' : ''}" ${selected ? `aria-pressed="${picked}"` : ''} data-list="${escapeHtml(list.id)}" style="--delay:${60 + i * 35}ms">
+      <span class="duo" aria-hidden="true"><b class="j">J</b><b class="w">W</b></span>
+      <span class="copy"><b>${escapeHtml(list.name)}</b><small>${activity.html}</small></span>
+      <span class="side"><span class="ago">${ago(activity.at)}</span>${list.items.length ? (left ? `<span class="count">${left} left</span>` : '<span class="count all-done">Done</span>') : ''}</span>
+    </button>`;
+  }).join('');
+
   const shown = sortedLists();
   $('#lists').innerHTML = shown.map((list, i) => {
     const [a, b] = themeOf(list);
@@ -215,7 +252,7 @@ function renderHome() {
     // A pinned list shows its next few items, so you can see what's on it without opening it.
     const next = pinned ? list.items.filter((item) => !item.done).sort((x, y) => y.created - x.created).slice(0, 3) : [];
     const picked = selected?.has(list.id);
-    return `<button type="button" class="tile${pinned ? ' pinned' : ''}${picked ? ' selected' : ''}" ${selected ? `aria-pressed="${picked}"` : ''} data-list="${escapeHtml(list.id)}" style="--ga:${a};--gb:${b};--delay:${60 + i * 35}ms">
+    return `<button type="button" class="tile${pinned ? ' pinned' : ''}${picked ? ' selected' : ''}" ${selected ? `aria-pressed="${picked}"` : ''} data-list="${escapeHtml(list.id)}" style="--ga:${a};--gb:${b};--delay:${60 + (together.length + i) * 35}ms">
       <span class="icon">${TICK}</span>
       <span class="corner">${pinned ? `<span class="pin-mark" aria-label="Pinned">${PIN}</span>` : ''}${total ? count : ''}</span>
       <span class="copy"><b>${escapeHtml(list.name)}</b><small>${!total ? 'Empty' : total - left ? `${total - left} of ${total} done` : plural(total, 'item')}</small>
@@ -223,17 +260,20 @@ function renderHome() {
       <span class="bar" aria-hidden="true"><span style="width:${pct}%"></span></span>
       <span class="select-mark" aria-hidden="true">${TICK}</span>
     </button>`;
-  }).join('') + `<button type="button" class="tile new" data-new-list style="--delay:${60 + shown.length * 35}ms">
+  }).join('') + `<button type="button" class="tile new" data-new-list style="--delay:${60 + (together.length + shown.length) * 35}ms">
       <span class="icon">${PLUS}</span>
-      <span class="copy"><b>New list</b><small>${view === 'shopping' ? (shown.length ? 'Groceries, hardware…' : 'Start a shopping list') : (shown.length ? 'Chores, work, plans…' : 'Start your first list')}</small></span>
+      <span class="copy"><b>New list</b><small>${view === 'shopping' ? (shown.length || together.length ? 'Groceries, hardware…' : 'Start a shopping list') : (shown.length || together.length ? 'Chores, work, plans…' : 'Start your first list')}</small></span>
     </button>`;
+
+  $('#who-line').innerHTML = me ? `You’re <b>${PEOPLE[me].name}</b> · <button type="button" data-switch-who>Switch</button>` : '';
 }
 
-function itemRow(item, fresh) {
+function itemRow(item, fresh, shared) {
+  const by = shared && PEOPLE[item.addedBy] ? `<span class="by ${item.addedBy === 'wah' ? 'w' : 'j'}" title="Added by ${PEOPLE[item.addedBy].name}">${PEOPLE[item.addedBy].initial}</span>` : '';
   return `<li class="item${item.done ? ' is-done' : ''}${fresh ? ' arrive' : ''}" data-item="${escapeHtml(item.id)}">
     <button type="button" class="check" role="checkbox" aria-checked="${item.done}" data-toggle>
       <span class="box">${TICK}</span><span class="item-text">${escapeHtml(item.text)}</span>
-    </button>
+    </button>${by}
     <button type="button" class="edit" data-edit aria-label="Edit ${escapeHtml(item.text)}">${PENCIL}</button>
   </li>`;
 }
@@ -243,8 +283,8 @@ function renderList(list) {
   const fresh = (item) => shownIds && !shownIds.has(item.id) && !REDUCED_MOTION.matches;
   const todo = list.items.filter((item) => !item.done).sort((x, y) => y.created - x.created);
   const done = list.items.filter((item) => item.done).sort((x, y) => (y.doneAt ?? 0) - (x.doneAt ?? 0));
-  $('#todo').innerHTML = todo.map((item) => itemRow(item, fresh(item))).join('');
-  $('#done').innerHTML = doneOpen ? done.map((item) => itemRow(item, fresh(item))).join('') : '';
+  $('#todo').innerHTML = todo.map((item) => itemRow(item, fresh(item), list.shared)).join('');
+  $('#done').innerHTML = doneOpen ? done.map((item) => itemRow(item, fresh(item), list.shared)).join('') : '';
   $('#done-head').hidden = !done.length;
   $('#done-count').textContent = `Done (${done.length})`;
   $('#done-toggle').setAttribute('aria-expanded', doneOpen);
@@ -300,6 +340,7 @@ function updateSelectBar() {
   document.body.classList.toggle('is-selecting', Boolean(selected));
   if (!selected) return;
   const chosen = lists.filter((list) => selected.has(list.id));
+  selectBar.querySelector('[data-select-pin]').hidden = chosen.some((list) => list.shared); // shared lists live under Together
   selectBar.querySelector('[data-select-pin]').textContent = chosen.every(isPinned) ? 'Unpin' : 'Pin';
   selectBar.querySelector('[data-select-edit]').hidden = chosen.length !== 1;
   selectBar.querySelector('[data-select-delete]').textContent = chosen.length > 1 ? `Delete ${chosen.length}` : 'Delete';
@@ -345,7 +386,8 @@ let sheetActions = null;
 // `theme` and `pinned` are only passed for lists: they show the colour swatches and the pin switch.
 const swatches = $('#swatches');
 const pinToggle = $('#pin-toggle');
-function openSheet({ title, value = '', placeholder = '', theme, pinned, onSave, onDelete }) {
+const shareToggle = $('#share-toggle');
+function openSheet({ title, value = '', placeholder = '', theme, pinned, shared, onSave, onDelete }) {
   sheetActions = { onSave, onDelete };
   $('#edit-title').textContent = title;
   editForm.text.value = value;
@@ -355,6 +397,9 @@ function openSheet({ title, value = '', placeholder = '', theme, pinned, onSave,
   swatches.innerHTML = THEMES.map(([a, b], i) => `<button type="button" role="radio" aria-checked="${i === theme}" aria-label="Colour ${i + 1}" data-theme="${i}" style="--ga:${a};--gb:${b}">${TICK}</button>`).join('');
   pinToggle.hidden = pinned === undefined;
   pinToggle.setAttribute('aria-pressed', Boolean(pinned));
+  shareToggle.hidden = shared === undefined;
+  shareToggle.setAttribute('aria-pressed', Boolean(shared));
+  $('#share-title').textContent = me ? `Share with ${PEOPLE[otherPerson()].name}` : 'Share';
   editSheet.showModal();
   // On phones, only pop the keyboard up straight away when typing is the point.
   if (!value || !window.matchMedia('(pointer: coarse)').matches) editForm.text.focus();
@@ -366,10 +411,13 @@ swatches.addEventListener('click', (event) => {
   for (const other of swatches.children) other.setAttribute('aria-checked', other === swatch);
 });
 pinToggle.addEventListener('click', () => pinToggle.setAttribute('aria-pressed', pinToggle.getAttribute('aria-pressed') !== 'true'));
+shareToggle.addEventListener('click', () => shareToggle.setAttribute('aria-pressed', shareToggle.getAttribute('aria-pressed') !== 'true'));
 editForm.addEventListener('submit', () => {
   const value = editForm.text.value.trim();
   const theme = Number(swatches.querySelector('[aria-checked="true"]')?.dataset.theme);
-  if (value) sheetActions?.onSave(value, { theme, pinned: pinToggle.getAttribute('aria-pressed') === 'true' });
+  // A switch that isn't on show for this sheet reports nothing, so it can't change anything.
+  const on = (button) => (button.hidden ? undefined : button.getAttribute('aria-pressed') === 'true');
+  if (value) sheetActions?.onSave(value, { theme, pinned: on(pinToggle), shared: on(shareToggle) });
 });
 editSheet.querySelector('[data-sheet-cancel]').addEventListener('click', () => editSheet.close());
 editSheet.querySelector('[data-sheet-delete]').addEventListener('click', () => { editSheet.close(); sheetActions?.onDelete(); });
@@ -378,9 +426,9 @@ editSheet.addEventListener('click', (event) => { if (event.target === editSheet)
 
 function newList() {
   const shopping = view === 'shopping';
-  openSheet({ title: shopping ? 'New shopping list' : 'New to-do list', placeholder: shopping ? 'e.g. Groceries' : 'e.g. Chores', theme: nextTheme(), onSave: (name, { theme }) => {
+  openSheet({ title: shopping ? 'New shopping list' : 'New to-do list', placeholder: shopping ? 'e.g. Groceries' : 'e.g. Chores', theme: nextTheme(), shared: false, onSave: (name, { theme, shared }) => {
     const listId = newId();
-    change({ type: 'addList', id: listId, name, kind: view, theme });
+    change({ type: 'addList', id: listId, name, kind: view, shared, theme });
     openList(listId);
     setTimeout(() => $('#add-input').focus(), 50);
   } });
@@ -396,12 +444,18 @@ function nextTheme() {
 function listMenu(list) {
   const pinned = isPinned(list);
   const theme = list.theme % THEMES.length;
-  openSheet({ title: 'Edit list', value: list.name, theme, pinned, onSave: (name, options) => {
+  const mine = ownerOf(list) === me; // only the person who made a list can share or unshare it
+  openSheet({ title: 'Edit list', value: list.name, theme, pinned: list.shared ? undefined : pinned, shared: mine ? Boolean(list.shared) : undefined, onSave: (name, options) => {
     const ops = [];
     if (name !== list.name) ops.push({ type: 'renameList', id: list.id, name });
     if (options.theme !== theme) ops.push({ type: 'setTheme', id: list.id, theme: options.theme });
+    if (options.shared !== undefined && options.shared !== Boolean(list.shared)) {
+      ops.push({ type: 'setShared', id: list.id, shared: options.shared });
+      if (options.shared) setPinned(list.id, false); // shared lists live under Together, not as pinned tiles
+      showToast(options.shared ? `Shared with ${PEOPLE[otherPerson()].name}` : 'Not shared any more');
+    }
     if (ops.length) change(...ops);
-    if (options.pinned !== pinned) {
+    if (options.pinned !== undefined && options.pinned !== pinned && !options.shared) {
       setPinned(list.id, options.pinned);
       showToast(options.pinned ? 'Pinned to the top' : 'Unpinned');
     }
@@ -420,10 +474,36 @@ function itemMenu(item) {
 
 // Undo puts things back with their original ids and dates.
 const restoreItems = (items) => items.flatMap((item) => [
-  { type: 'addItem', id: item.id, listId: item.listId, text: item.text, at: item.created },
-  ...(item.done ? [{ type: 'checkItem', id: item.id, done: true, at: item.doneAt }] : []),
+  { type: 'addItem', id: item.id, listId: item.listId, text: item.text, by: item.addedBy, at: item.created },
+  ...(item.done ? [{ type: 'checkItem', id: item.id, done: true, by: item.doneBy, at: item.doneAt }] : []),
 ]);
-const restoreList = (list) => [{ type: 'addList', id: list.id, name: list.name, kind: kindOf(list), theme: list.theme, at: list.created }, ...restoreItems(list.items)];
+const restoreList = (list) => [{ type: 'addList', id: list.id, name: list.name, kind: kindOf(list), by: ownerOf(list), shared: Boolean(list.shared), theme: list.theme, at: list.created }, ...restoreItems(list.items)];
+
+// --- who's this: asked once per phone, and again if you tap Switch ---------------------------
+const whoSheet = $('#who-sheet');
+function askWho() {
+  if (whoSheet.open) return;
+  whoSheet.showModal();
+  document.activeElement?.blur(); // don't highlight the first button as if it were already chosen
+}
+whoSheet.addEventListener('cancel', (event) => { if (!me) event.preventDefault(); });
+whoSheet.addEventListener('click', (event) => {
+  const choice = event.target.closest('[data-who]');
+  if (!choice) { if (event.target === whoSheet && me) whoSheet.close(); return; }
+  if (choice.dataset.who !== me) {
+    me = choice.dataset.who;
+    store.set('checklist-me', me);
+    // Forget the other person's lists, then fetch this person's.
+    server = { version: 0, lists: [] };
+    loaded = false;
+    store.set('checklist-server', server);
+    selected = null;
+    rebuild();
+    pull();
+  }
+  whoSheet.close();
+  render();
+});
 
 // --- sign in (only when the server has APP_PASSWORD set) -----------------------------------
 const loginSheet = $('#login-sheet');
@@ -482,6 +562,7 @@ addForm.addEventListener('submit', (event) => {
 document.addEventListener('click', (event) => {
   if (held) { held = false; event.preventDefault(); return; }
   const target = event.target;
+  if (target.closest('[data-switch-who]')) return askWho();
   const switchTo = target.closest('[data-set-view]');
   if (switchTo) return setView(switchTo.dataset.setView);
   const tile = target.closest('[data-list]');
@@ -614,6 +695,7 @@ if ('serviceWorker' in navigator) {
 
 // --- start -----------------------------------------------------------------------------------
 document.body.classList.add('preload');
+if (!me) { server = { version: 0, lists: [] }; loaded = false; askWho(); }
 rebuild();
 onRoute();
 pull();

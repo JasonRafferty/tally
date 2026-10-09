@@ -100,6 +100,36 @@ body[data-view="list"] .grid, body[data-view="home"] .list { display: none; }
 .peek { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 .peek span { max-width: 100%; overflow: hidden; padding: 4px 10px; border-radius: 99px; background: rgba(255, 255, 255, .2); font-size: .78rem; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; }
 
+/* together: lists shared with the other person, as cards that show the latest change */
+body[data-view="list"] .together-wrap, body[data-view="list"] .who-line { display: none; }
+.label { display: flex; align-items: center; gap: 6px; margin: 0 2px 8px; color: var(--muted); font-size: .72rem; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+.label svg { width: 12px; height: 12px; fill: #ef4444; }
+.label.mine { margin-top: 18px; }
+#together { display: grid; gap: 8px; }
+.card { position: relative; display: flex; align-items: center; gap: 14px; width: 100%; padding: 14px 16px; border: 0; border-radius: 20px; background: var(--tile); box-shadow: 0 1px 2px rgba(18, 24, 38, .05); color: inherit; text-align: left; cursor: pointer; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; transition: transform .18s ease, box-shadow .18s ease; }
+.card:active { transform: scale(.98); transition-duration: .08s; }
+@media (hover: hover) { .card:hover { transform: translateY(-2px); box-shadow: 0 14px 30px -18px rgba(18, 24, 38, .35); } }
+.card .copy { flex: 1; }
+.card .copy small { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.card .copy small em { color: var(--ink); font-style: normal; font-weight: 800; }
+.card .side { display: flex; flex: none; flex-direction: column; align-items: flex-end; gap: 6px; }
+.card .ago { color: #98a0b0; font-size: .7rem; font-weight: 700; }
+.card.selected { box-shadow: 0 0 0 3px var(--ink), 0 14px 30px -18px rgba(18, 24, 38, .35); }
+.selecting .card:not(.selected) { transform: scale(.98); }
+.duo { display: inline-flex; flex: none; }
+.duo b { display: grid; place-items: center; width: 28px; height: 28px; border: 2px solid #fff; border-radius: 50%; color: #fff; font-size: .72rem; font-weight: 800; line-height: 1; }
+.duo b + b { margin-left: -9px; }
+.j, .person.j { background: linear-gradient(160deg, #334155, #0f172a); }
+.w, .person.w { background: linear-gradient(160deg, #f59e0b, #c2410c); }
+.by { display: grid; flex: none; place-items: center; width: 22px; height: 22px; margin-right: 2px; border-radius: 50%; color: #fff; font-size: .62rem; font-weight: 800; }
+.who-line { margin: 26px 0 0; color: var(--muted); font-size: .8rem; font-weight: 600; text-align: center; }
+.who-line button { padding: 4px 6px; border: 0; background: none; color: var(--ink); font-weight: 800; text-decoration: underline; cursor: pointer; }
+body.is-selecting .who-line { visibility: hidden; }
+.who-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px; }
+.who-btn { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 22px 12px 18px; border: 0; border-radius: 22px; background: var(--bg); font-size: 1.05rem; font-weight: 800; cursor: pointer; transition: transform .12s ease; }
+.who-btn:active { transform: scale(.95); }
+.person { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; color: #fff; font-size: 1.4rem; font-weight: 800; }
+
 /* selecting lists: a tick in the corner, a dark ring on the chosen ones */
 .select-mark { position: absolute; top: 14px; right: 14px; z-index: 1; display: none; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #fff; box-shadow: inset 0 0 0 2px var(--line); color: #fff; }
 .select-mark svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; opacity: 0; }

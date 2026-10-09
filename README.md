@@ -14,6 +14,14 @@ the done ones. Every phone that opens it shares the same lists, and they stay in
 - **Colours and pins:** in a list, tap `⋯` to rename it, pick its colour or pin it. Pinned lists
   show first as big tiles with their next few items. Pins belong to each device, like App Drawer's.
 - Deletes can be undone from the message at the bottom.
+- **To-do and Shopping:** swipe sideways (or tap the switch) on the Lists screen. A new list gets the
+  type of the view you're in.
+- **Jason and Wah:** each phone asks "Who's this?" once, and tap *Switch* at the bottom of the Lists
+  screen to change it. A phone only gets its own lists plus shared ones. Switch on **Share with…** in
+  a list's `⋯` menu to put it under **Together** on both phones, where each card shows the latest
+  change ("Wah added Oat milk"). On shared lists each item shows who added it.
+  This keeps lists apart, but it isn't a lock: there are no sign-ins, so either phone could pick the
+  other name.
 
 ## Run it locally
 

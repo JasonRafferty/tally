@@ -17,7 +17,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="styles.css?v=4" />
+    <link rel="stylesheet" href="styles.css?v=5" />
   </head>
   <body data-view="home">
     <main class="shell">
@@ -50,8 +50,16 @@
         </button>
       </header>
 
-      <!-- all lists: tiles rendered by app.js -->
+      <!-- lists shared with the other person: cards that show the latest change -->
+      <section class="together-wrap" id="together-wrap" hidden>
+        <p class="label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.6-9.4C.9 8 3 4.5 6.4 4.5c2.2 0 3.9 1.2 5.6 3.3 1.7-2.1 3.4-3.3 5.6-3.3 3.4 0 5.5 3.5 4 7.1C19.5 16.4 12 21 12 21z" /></svg>Together</p>
+        <div id="together" aria-live="polite"></div>
+        <p class="label mine">Mine</p>
+      </section>
+
+      <!-- my lists: tiles rendered by app.js -->
       <section class="grid" id="lists" aria-live="polite"></section>
+      <p class="who-line" id="who-line"></p>
 
       <!-- one list -->
       <section class="list" id="list">
@@ -84,6 +92,18 @@
       </form>
     </dialog>
 
+    <!-- first launch on a phone: who is this? -->
+    <dialog class="sheet" id="who-sheet" aria-labelledby="who-title">
+      <div class="sheet-panel">
+        <h2 id="who-title">Who’s this?</h2>
+        <p class="sheet-note">Your lists stay on your phone. Lists you share show on both.</p>
+        <div class="who-choices">
+          <button type="button" class="who-btn" data-who="jason"><span class="person j">J</span>Jason</button>
+          <button type="button" class="who-btn" data-who="wah"><span class="person w">W</span>Wah</button>
+        </div>
+      </div>
+    </dialog>
+
     <!-- name a list, rename a list or edit an item -->
     <dialog class="sheet" id="edit-sheet" aria-labelledby="edit-title">
       <form method="dialog" class="sheet-panel" id="edit-form" autocomplete="off">
@@ -94,6 +114,11 @@
         <button type="button" class="pin-toggle" id="pin-toggle" aria-pressed="false">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6l-1 5 3 3v2H7v-2l3-3z" /><path d="M12 14v6" /></svg>
           <span><b>Pin to the top</b><small>Shows first, as a big tile, on this device</small></span>
+          <span class="switch" aria-hidden="true"></span>
+        </button>
+        <button type="button" class="pin-toggle" id="share-toggle" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.6-9.4C.9 8 3 4.5 6.4 4.5c2.2 0 3.9 1.2 5.6 3.3 1.7-2.1 3.4-3.3 5.6-3.3 3.4 0 5.5 3.5 4 7.1C19.5 16.4 12 21 12 21z" /></svg>
+          <span><b id="share-title">Share</b><small>Shows on both phones, under Together</small></span>
           <span class="switch" aria-hidden="true"></span>
         </button>
         <div class="sheet-actions">
@@ -126,6 +151,6 @@
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"><span id="toast-text"></span><button type="button" id="toast-undo" hidden>Undo</button></div>
-    <script src="app.js?v=4"></script>
+    <script src="app.js?v=5"></script>
   </body>
 </html>
