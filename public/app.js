@@ -199,7 +199,7 @@ function render() {
   document.documentElement.style.setProperty('--ga', a);
   document.documentElement.style.setProperty('--gb', b);
   $('#title').textContent = list ? list.name : selected ? `${selected.size} selected` : view === 'shopping' ? 'Shopping' : 'To-do';
-  document.title = list ? `${list.name} · Checklist` : 'Checklist';
+  document.title = list ? `${list.name} · Tally` : 'Tally';
   if (list) renderList(list); else renderHome();
   renderSuggestions();
   showStatus();

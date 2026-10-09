@@ -1,14 +1,14 @@
 #!/usr/bin/env node
-// Checklist server: serves the web app from ./public and keeps every list in one SQLite file.
+// Tally server: serves the web app from ./public and keeps every list in one SQLite file.
 // No npm packages needed, just Node 24 or newer (for the built-in `node:sqlite`).
 //
 // Usage: node server.js
 // Settings (environment variables):
 //   PORT          port to listen on (default 4175)
-//   DATA_DIR      where checklist.db lives (default ./data)
+//   DATA_DIR      where tally.db lives (default ./data)
 //   APP_PASSWORD  if set, the app asks for this password once per device
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { readFile, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -20,7 +20,7 @@ const PORT = Number(process.env.PORT) || 4175;
 // SQLite can't lock files on a network share, which includes a WSL folder opened from Windows
 // (\\wsl.localhost\...). Started that way, keep the data in a normal Windows folder instead.
 const ON_SHARE = process.platform === 'win32' && import.meta.dirname.startsWith('\\\\');
-const DATA_DIR = resolve(process.env.DATA_DIR || (ON_SHARE ? join(process.env.LOCALAPPDATA || homedir(), 'checklist') : join(import.meta.dirname, 'data')));
+const DATA_DIR = resolve(process.env.DATA_DIR || (ON_SHARE ? join(process.env.LOCALAPPDATA || homedir(), 'tally') : join(import.meta.dirname, 'data')));
 const PASSWORD = process.env.APP_PASSWORD || '';
 const COOKIE = 'checklist_session';
 const MAX_BODY = 256 * 1024;
@@ -30,7 +30,11 @@ const GROUPS = ['produce', 'bakery', 'dairy', 'meat', 'frozen', 'cupboard', 'dri
 
 // --- storage ------------------------------------------------------------------------------
 mkdirSync(DATA_DIR, { recursive: true });
-const db = new DatabaseSync(join(DATA_DIR, 'checklist.db'));
+// The database used to be called checklist.db: keep any lists already in it.
+if (!existsSync(join(DATA_DIR, 'tally.db')) && existsSync(join(DATA_DIR, 'checklist.db'))) {
+  for (const suffix of ['', '-wal', '-shm']) if (existsSync(join(DATA_DIR, `checklist.db${suffix}`))) renameSync(join(DATA_DIR, `checklist.db${suffix}`), join(DATA_DIR, `tally.db${suffix}`));
+}
+const db = new DatabaseSync(join(DATA_DIR, 'tally.db'));
 try {
   db.exec('PRAGMA journal_mode = WAL');
 } catch (error) {
@@ -286,8 +290,8 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`Checklist on http://localhost:${PORT}${PASSWORD ? ' (password on)' : ''}`);
-  console.log(`Lists saved in ${join(DATA_DIR, 'checklist.db')}`);
+  console.log(`Tally on http://localhost:${PORT}${PASSWORD ? ' (password on)' : ''}`);
+  console.log(`Lists saved in ${join(DATA_DIR, 'tally.db')}`);
 });
 server.on('error', (error) => {
   console.error(error.code === 'EADDRINUSE' ? `Port ${PORT} is already in use. Stop whatever is using it, or pick another: PORT=4176 node server.js` : error.message);

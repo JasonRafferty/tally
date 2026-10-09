@@ -1,7 +1,7 @@
 {
-  "name": "Checklist",
-  "short_name": "Checklist",
-  "description": "Simple shared checklists for day-to-day tasks",
+  "name": "Tally",
+  "short_name": "Tally",
+  "description": "Shared lists for shopping and day-to-day tasks",
   "id": "./",
   "start_url": "./",
   "scope": "./",

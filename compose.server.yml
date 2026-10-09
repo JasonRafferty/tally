@@ -1,18 +1,18 @@
 services:
-  checklist:
+  tally:
     build: .
-    container_name: checklist
+    container_name: tally
     restart: unless-stopped
     environment:
       # Optional: ask for a password once per device. Leave empty to turn it off.
-      APP_PASSWORD: ${CHECKLIST_PASSWORD:-}
+      APP_PASSWORD: ${TALLY_PASSWORD:-}
     volumes:
-      - checklist-data:/data
+      - tally-data:/data
     networks:
       - cloudflare_tunnel
 
 volumes:
-  checklist-data:
+  tally-data:
 
 networks:
   cloudflare_tunnel:
