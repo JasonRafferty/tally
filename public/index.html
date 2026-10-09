@@ -113,7 +113,7 @@
     <!-- name a list, rename a list or edit an item -->
     <dialog class="sheet" id="edit-sheet" aria-labelledby="edit-title">
       <form method="dialog" class="sheet-panel" id="edit-form" autocomplete="off">
-        <h2 id="edit-title"></h2>
+        <h2 id="edit-title" tabindex="-1"></h2>
         <input name="text" maxlength="500" aria-labelledby="edit-title" enterkeyhint="done" required />
         <input name="qty" id="edit-qty" maxlength="40" placeholder="Quantity, e.g. 2 or 500 g" aria-label="Quantity" enterkeyhint="done" hidden />
         <select name="grp" id="edit-grp" aria-label="Group" hidden></select>
@@ -161,6 +161,6 @@
     <div class="toast" id="toast" role="status" aria-live="polite"><span id="toast-text"></span><button type="button" id="toast-undo" hidden>Undo</button></div>
     <script src="groups.js?v=1"></script>
     <script src="icons.js?v=1"></script>
-    <script src="app.js?v=17"></script>
+    <script src="app.js?v=18"></script>
   </body>
 </html>

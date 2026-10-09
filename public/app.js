@@ -488,10 +488,11 @@ function openSheet({ title, value = '', placeholder = '', qty, group, theme, pin
   shareToggle.hidden = shared === undefined;
   shareToggle.setAttribute('aria-pressed', Boolean(shared));
   $('#share-title').textContent = me ? `Share with ${PEOPLE[otherPerson()].name}` : 'Share';
+  // showModal focuses the first input by default. Give existing-list/item
+  // dialogs a non-editable focus target before opening, so no keyboard opens.
+  $('#edit-title').toggleAttribute('autofocus', Boolean(value));
+  editForm.text.toggleAttribute('autofocus', !value);
   editSheet.showModal();
-  // On phones, only pop the keyboard up straight away when typing is the point.
-  if (!value || !window.matchMedia('(pointer: coarse)').matches) editForm.text.focus();
-  if (value && document.activeElement === editForm.text) editForm.text.select();
 }
 swatches.addEventListener('click', (event) => {
   const swatch = event.target.closest('[data-theme]');
