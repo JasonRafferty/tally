@@ -6,6 +6,8 @@ the done ones. Every phone that opens it shares the same lists, and they stay in
 
 - **Installable:** on Android/Chrome it offers an "Install" button; on iPhone it shows how to use
   Share → Add to Home Screen. Once installed it opens full screen from its own home-screen icon.
+- **Instant updates:** when one phone changes something, the other updates straight away. If the live
+  connection drops, it falls back to checking every few seconds.
 - **Works offline:** the app opens without a connection, and changes made offline are saved on the
   phone and sent to the server when it's back.
 - **Tap** an item to tick it. **Press and hold** an item (or tap its pencil) to edit or delete it.

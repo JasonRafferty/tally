@@ -95,8 +95,10 @@ function accept(snapshot) {
   rebuild();
 }
 
+let lastPull = 0;
 async function pull() {
   if (!me) return;
+  lastPull = Date.now();
   if (pushing || outbox.length) return push();
   try {
     const snapshot = await request(`/api/state?since=${server.version}`);
@@ -521,6 +523,7 @@ whoSheet.addEventListener('click', (event) => {
     selected = null;
     rebuild();
     pull();
+    connectLive();
   }
   whoSheet.close();
   render();
@@ -544,6 +547,7 @@ loginForm.addEventListener('submit', async (event) => {
   loginForm.reset();
   loginSheet.close();
   pull();
+  connectLive();
 });
 
 // --- toast with undo -------------------------------------------------------------------------
@@ -746,7 +750,23 @@ document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && 
 new IntersectionObserver(([entry]) => $('.top').classList.toggle('stuck', !entry.isIntersecting)).observe($('#top-sentinel'));
 
 // Keep in step with other phones: check every few seconds while open, and straight away on return.
-setInterval(() => { if (!document.hidden) pull(); }, POLL_MS);
+// Changes arrive instantly over a live connection. Checking every few seconds is only the fallback
+// for when that connection isn't up, plus a slow safety check while it is.
+let live = false;
+let source = null;
+function connectLive() {
+  if (!me || source || !('EventSource' in window)) return;
+  source = new EventSource('/api/events');
+  source.onopen = () => { live = true; };
+  source.onmessage = (event) => {
+    try { if (JSON.parse(event.data).version !== server.version) pull(); } catch { /* ignore a garbled message */ }
+  };
+  source.onerror = () => {
+    live = false;
+    if (source.readyState === EventSource.CLOSED) { source = null; setTimeout(connectLive, 15_000); } // e.g. signed out
+  };
+}
+setInterval(() => { if (!document.hidden && (!live || Date.now() - lastPull > 30_000)) pull(); }, POLL_MS);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) pull(); });
 window.addEventListener('online', pull);
 window.addEventListener('offline', () => { online = false; showStatus(); });
@@ -803,6 +823,7 @@ if (!me) { server = { version: 0, lists: [] }; loaded = false; askWho(); }
 rebuild();
 onRoute();
 pull();
+connectLive();
 const fontsReady = document.fonts?.ready ?? Promise.resolve();
 Promise.race([fontsReady, new Promise((resolve) => setTimeout(resolve, 500))]).then(() => {
   document.body.classList.remove('preload');

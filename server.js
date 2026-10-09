@@ -168,7 +168,24 @@ function applyOps(ops) {
     db.exec('ROLLBACK');
     throw error;
   }
+  announce();
 }
+
+// Phones keep one connection open (server-sent events). When something changes they're told the new
+// version straight away and fetch it, so updates show up instantly instead of on the next check.
+const listeners = new Set();
+function announce() {
+  const message = `data: ${JSON.stringify({ version: version() })}\n\n`;
+  for (const res of listeners) res.write(message);
+}
+function listen(req, res) {
+  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+  res.write(`retry: 3000\ndata: ${JSON.stringify({ version: version() })}\n\n`);
+  listeners.add(res);
+  req.on('close', () => listeners.delete(res));
+}
+// A quiet line every so often stops proxies (like the Cloudflare tunnel) closing an idle connection.
+setInterval(() => { for (const res of listeners) res.write(': still here\n\n'); }, 25_000).unref();
 
 // --- optional password ----------------------------------------------------------------------
 const sessionToken = PASSWORD ? createHmac('sha256', PASSWORD).update('checklist-session-v1').digest('hex') : '';
@@ -228,6 +245,7 @@ async function api(req, res, path) {
   if (!signedIn(req)) return send(res, 401, { error: 'Sign in first' });
   const who = person(req.headers['x-who']);
 
+  if (path === '/api/events' && req.method === 'GET') return listen(req, res);
   if (path === '/api/state' && req.method === 'GET') {
     // Cheap polling: the app passes the version it has, and gets 204 if nothing changed.
     const since = Number(new URL(req.url, 'http://x').searchParams.get('since'));
@@ -275,6 +293,9 @@ server.on('error', (error) => {
   console.error(error.code === 'EADDRINUSE' ? `Port ${PORT} is already in use. Stop whatever is using it, or pick another: PORT=4176 node server.js` : error.message);
   process.exit(1);
 });
-const stop = () => server.close(() => { db.close(); process.exit(0); });
+const stop = () => {
+  for (const res of listeners) res.end();
+  server.close(() => { db.close(); process.exit(0); });
+};
 process.on('SIGTERM', stop);
 process.on('SIGINT', stop);
