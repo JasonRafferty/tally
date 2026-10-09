@@ -55,5 +55,18 @@ docker cp tally:/data ./tally-backup
 
 ## Good to know
 
+Shopping list Edit offers Off, Product type, Aldi, Morrisons, Lidl and Tesco.
+Store routes are suggested department orders, not exact branch maps. Use
+**Adjust aisle order** to match your shop; each store's adjustments are saved
+with the list and shared between both phones. Research and its limits are in
+[`docs/supermarket-layout-research.md`](docs/supermarket-layout-research.md).
+
+Shopping suggestions understand common typos and grocery aliases. Duplicate
+shopping items are blocked across both phones, including offline sync. Buy again
+learns from items you tick off and gradually ranks regular purchases by frequency
+and typical time between shops. It never automatically adds items.
+
+Run the shopping logic and persistence checks with `node --test tests/shopping.test.mjs`.
+
 There are no accounts. "Who's this?" keeps lists tidy, but it isn't a lock. Either phone could pick
 the other name, so don't keep anything secret in here.

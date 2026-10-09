@@ -48,6 +48,7 @@ const OPS = {
   renameList: (all, op) => { const list = all.find((l) => l.id === op.id); if (list) list.name = op.name; },
   setShared: (all, op) => { const list = all.find((l) => l.id === op.id); if (list) list.shared = Boolean(op.shared); },
   setGrouping: (all, op) => { const list = all.find((l) => l.id === op.id); if (list) list.grouping = op.grouping; },
+  setAisleOrder: (all, op) => { const list = all.find((l) => l.id === op.id); if (list) list.aisleOrders = { ...list.aisleOrders, [op.store]: op.order }; },
   setTheme: (all, op) => { const list = all.find((l) => l.id === op.id); if (list) list.theme = op.theme; },
   deleteList: (all, op) => { const i = all.findIndex((l) => l.id === op.id); if (i >= 0) all.splice(i, 1); },
   addItem: (all, op) => {
@@ -304,8 +305,8 @@ function itemRow(item, fresh, shared) {
 
 // Shopping lists are split under group headings, in the order you walk the shop.
 const groupOf = (item) => (GROUP_IDS.has(item.grp) ? item.grp : guessGroup(item.text));
-function groupedRows(items, fresh, shared, mode) {
-  const groups = mode === 'product' ? PRODUCT_GROUPS : AISLE_GROUPS;
+function groupedRows(items, fresh, shared, mode, orders) {
+  const groups = mode === 'product' ? PRODUCT_GROUPS : storeGroups(mode, orders?.[mode] ?? []);
   return groups.map((group) => {
     const inGroup = items.filter((item) => shoppingGroup(item, mode) === group.id);
     return inGroup.length ? `<li class="group-head" role="presentation" data-flip="head-${group.id}"><span>${group.name}</span><small>${inGroup.length}</small></li>${inGroup.map((item) => itemRow(item, fresh(item), shared)).join('')}` : '';
@@ -336,7 +337,7 @@ function drawList(list) {
   const fresh = (item) => shownIds && !shownIds.has(item.id) && !REDUCED_MOTION.matches;
   const todo = list.items.filter((item) => !item.done).sort((x, y) => y.created - x.created);
   const done = list.items.filter((item) => item.done).sort((x, y) => (y.doneAt ?? 0) - (x.doneAt ?? 0));
-  $('#todo').innerHTML = kindOf(list) === 'shopping' && list.grouping !== 'off' ? groupedRows(todo, fresh, list.shared, list.grouping ?? 'aisle') : todo.map((item) => itemRow(item, fresh(item), list.shared)).join('');
+  $('#todo').innerHTML = kindOf(list) === 'shopping' && list.grouping !== 'off' ? groupedRows(todo, fresh, list.shared, list.grouping ?? 'aisle', list.aisleOrders) : todo.map((item) => itemRow(item, fresh(item), list.shared)).join('');
   $('#done').innerHTML = doneOpen ? done.map((item) => itemRow(item, fresh(item), list.shared)).join('') : '';
   $('#done-head').hidden = !done.length;
   $('#done-count').textContent = `Done (${done.length})`;
@@ -473,7 +474,31 @@ const shareToggle = $('#share-toggle');
 const qtyField = $('#edit-qty');
 const groupField = $('#edit-grp');
 groupField.innerHTML = GROUPS.map((group) => `<option value="${group.id}">${group.name}</option>`).join('');
-function openSheet({ title, value = '', placeholder = '', qty, group, grouping, theme, pinned, shared, onSave, onDelete }) {
+let editAisleOrders = {};
+function renderAisleSettings() {
+  const store = $('#edit-grouping').value;
+  const profile = STORE_PROFILES[store];
+  $('#aisle-settings').hidden = $('#grouping-setting').hidden || !profile;
+  $('#store-layout-note').hidden = $('#aisle-settings').hidden;
+  if (!profile) return;
+  const groups = storeGroups(store, editAisleOrders[store] ?? []);
+  $('#aisle-order').innerHTML = groups.map((group, i) => `<div class="aisle-order-row"><span>${group.name}</span><button type="button" data-aisle-index="${i}" data-aisle-step="-1" aria-label="Move ${group.name} up" ${i === 0 ? 'disabled' : ''}>↑</button><button type="button" data-aisle-index="${i}" data-aisle-step="1" aria-label="Move ${group.name} down" ${i === groups.length - 1 ? 'disabled' : ''}>↓</button></div>`).join('');
+}
+$('#edit-grouping').addEventListener('change', renderAisleSettings);
+$('#aisle-order').addEventListener('click', (event) => {
+  const button = event.target.closest('[data-aisle-index]');
+  if (!button) return;
+  const store = $('#edit-grouping').value;
+  const ids = storeGroups(store, editAisleOrders[store] ?? []).map((group) => group.id);
+  const from = Number(button.dataset.aisleIndex), to = from + Number(button.dataset.aisleStep);
+  if (to < 0 || to >= ids.length) return;
+  [ids[from], ids[to]] = [ids[to], ids[from]];
+  editAisleOrders[store] = ids;
+  renderAisleSettings();
+  $('#aisle-order').querySelector(`[data-aisle-index="${to}"][data-aisle-step="${button.dataset.aisleStep}"]`)?.focus({ preventScroll: true });
+});
+$('#reset-aisles').addEventListener('click', () => { editAisleOrders[$('#edit-grouping').value] = []; renderAisleSettings(); });
+function openSheet({ title, value = '', placeholder = '', qty, group, grouping, aisleOrders, theme, pinned, shared, onSave, onDelete }) {
   sheetActions = { onSave, onDelete };
   $('#edit-title').textContent = title;
   editForm.text.value = value;
@@ -489,6 +514,9 @@ function openSheet({ title, value = '', placeholder = '', qty, group, grouping, 
   if (group !== undefined) groupField.value = group;
   $('#grouping-setting').hidden = grouping === undefined;
   $('#edit-grouping').value = grouping ?? 'aisle';
+  editAisleOrders = structuredClone(aisleOrders ?? {});
+  $('#aisle-settings').open = false;
+  renderAisleSettings();
   shareToggle.hidden = shared === undefined;
   shareToggle.setAttribute('aria-pressed', Boolean(shared));
   $('#share-title').textContent = me ? `Share with ${PEOPLE[otherPerson()].name}` : 'Share';
@@ -512,7 +540,7 @@ editForm.addEventListener('submit', (event) => {
   // A switch that isn't on show for this sheet reports nothing, so it can't change anything.
   const on = (button) => (button.hidden ? undefined : button.getAttribute('aria-pressed') === 'true');
   if (!value) return;
-  const options = { theme, pinned: on(pinToggle), shared: on(shareToggle), grouping: $('#grouping-setting').hidden ? undefined : $('#edit-grouping').value, qty: qtyField.hidden ? undefined : qtyField.value.trim(), group: groupField.hidden ? undefined : groupField.value };
+  const options = { theme, pinned: on(pinToggle), shared: on(shareToggle), grouping: $('#grouping-setting').hidden ? undefined : $('#edit-grouping').value, aisleOrders: editAisleOrders, qty: qtyField.hidden ? undefined : qtyField.value.trim(), group: groupField.hidden ? undefined : groupField.value };
   // Finish the dialog's focus restoration before navigating to a different page.
   editForm.text.blur();
   editSheet.close();
@@ -544,8 +572,9 @@ function listMenu(list) {
   const theme = list.theme % THEMES.length;
   const editColour = document.body.dataset.view === 'home';
   const mine = ownerOf(list) === me; // only the person who made a list can share or unshare it
-  openSheet({ title: 'Edit list', value: list.name, theme: editColour ? theme : undefined, grouping: kindOf(list) === 'shopping' ? list.grouping ?? 'aisle' : undefined, pinned: list.shared ? undefined : pinned, shared: mine ? Boolean(list.shared) : undefined, onSave: (name, options) => {
+  openSheet({ title: 'Edit list', value: list.name, theme: editColour ? theme : undefined, grouping: kindOf(list) === 'shopping' ? list.grouping ?? 'aisle' : undefined, aisleOrders: list.aisleOrders, pinned: list.shared ? undefined : pinned, shared: mine ? Boolean(list.shared) : undefined, onSave: (name, options) => {
     const ops = [];
+    for (const [store, order] of Object.entries(options.aisleOrders)) if (JSON.stringify(order) !== JSON.stringify(list.aisleOrders?.[store])) ops.push({ type: 'setAisleOrder', id: list.id, store, order });
     if (options.grouping !== undefined && options.grouping !== (list.grouping ?? 'aisle')) ops.push({ type: 'setGrouping', id: list.id, grouping: options.grouping });
     if (name !== list.name) ops.push({ type: 'renameList', id: list.id, name });
     if (options.theme !== undefined && options.theme !== theme) ops.push({ type: 'setTheme', id: list.id, theme: options.theme });
@@ -583,7 +612,7 @@ const restoreItems = (items) => items.flatMap((item) => [
   { type: 'addItem', id: item.id, listId: item.listId, text: item.text, qty: item.qty, grp: item.grp, by: item.addedBy, at: item.created },
   ...(item.done ? [{ type: 'checkItem', id: item.id, done: true, by: item.doneBy, at: item.doneAt }] : []),
 ]);
-const restoreList = (list) => [{ type: 'addList', id: list.id, name: list.name, kind: kindOf(list), by: ownerOf(list), shared: Boolean(list.shared), theme: list.theme, at: list.created }, { type: 'setGrouping', id: list.id, grouping: list.grouping ?? 'aisle' }, ...restoreItems(list.items)];
+const restoreList = (list) => [{ type: 'addList', id: list.id, name: list.name, kind: kindOf(list), by: ownerOf(list), shared: Boolean(list.shared), theme: list.theme, at: list.created }, { type: 'setGrouping', id: list.id, grouping: list.grouping ?? 'aisle' }, ...Object.entries(list.aisleOrders ?? {}).map(([store, order]) => ({ type: 'setAisleOrder', id: list.id, store, order })), ...restoreItems(list.items)];
 
 // --- who's this: asked once per phone, and again if you tap Switch ---------------------------
 const whoSheet = $('#who-sheet');
@@ -671,11 +700,15 @@ function parseQuantity(input) {
 const addForm = $('#add-form');
 const addInput = $('#add-input');
 const suggestBox = $('#suggest');
-const itemKey = (text) => text.trim().toLowerCase().replace(/\s+/g, ' ');
+const itemKey = ShoppingCore.key;
 
 // Everything bought before: the server's history, plus items on shopping lists that haven't reached it yet.
 function knownItems() {
-  const known = new Map((server.history ?? []).map((entry) => [itemKey(entry.text), entry]));
+  const known = new Map();
+  for (const entry of server.history ?? []) {
+    const key = itemKey(entry.text);
+    if (!known.has(key)) known.set(key, entry); // Server sends newest first.
+  }
   for (const list of lists) {
     if (kindOf(list) !== 'shopping') continue;
     for (const item of list.items) if (!known.has(itemKey(item.text))) known.set(itemKey(item.text), { text: item.text, qty: item.qty ?? '', grp: item.grp, count: 1 });
@@ -692,11 +725,25 @@ function suggestionsFor(list, typed) {
   const waiting = new Set(list.items.filter((item) => !item.done).map((item) => itemKey(item.text)));
   const query = itemKey(typed.replace(new RegExp(`^\\d+(?:\\.\\d+)?(?:\\s*${UNIT})?(?:\\s+of)?\\s+`, 'i'), ''));
   const pool = knownItems().filter((entry) => !waiting.has(itemKey(entry.text)));
-  if (!query) return pool.filter((entry) => !entry.staple).slice(0, 10);
+  const familiarity = (entry) => {
+    const days = Math.max(0, (Date.now() - (entry.lastPurchased ?? entry.last ?? Date.now())) / 86400000);
+    const due = entry.purchaseInterval > 0 ? Math.min(3, (Date.now() - entry.lastPurchased) / entry.purchaseInterval) : 0;
+    return (entry.purchaseCount ?? 0) * 4 + Math.min(entry.count ?? 0, 20) + due * 8 + 3 / (1 + days);
+  };
+  if (!query) return pool.filter((entry) => !entry.staple).sort((a, b) => familiarity(b) - familiarity(a)).slice(0, 10);
   const starts = (entry) => itemKey(entry.text).startsWith(query);
   const wordStarts = (entry) => itemKey(entry.text).split(' ').some((word) => word.startsWith(query));
-  const byCount = (a, b) => b.count - a.count;
-  return [...pool.filter(starts).sort(byCount), ...pool.filter((entry) => !starts(entry) && wordStarts(entry)).sort(byCount)].slice(0, 8);
+  const score = (entry) => {
+    const key = itemKey(entry.text);
+    if (key === query) return 0;
+    if (starts(entry)) return 1;
+    if (wordStarts(entry)) return 2;
+    if (query.length < 3) return Infinity;
+    const distance = Math.min(ShoppingCore.distance(query, key), ...key.split(' ').map((word) => ShoppingCore.distance(query, word)));
+    return distance <= (query.length > 5 ? 2 : 1) ? 3 + distance : Infinity;
+  };
+  return pool.map((entry) => ({ entry, score: score(entry) })).filter((match) => Number.isFinite(match.score))
+    .sort((a, b) => a.score - b.score || familiarity(b.entry) - familiarity(a.entry)).slice(0, 8).map((match) => match.entry);
 }
 
 function renderSuggestions() {
@@ -712,6 +759,8 @@ function renderSuggestions() {
 function addToList(list, name, qty, grp) {
   const shopping = kindOf(list) === 'shopping';
   if (shopping) name = name.charAt(0).toUpperCase() + name.slice(1);
+  const existing = shopping && list.items.find((item) => !item.done && itemKey(item.text) === itemKey(name));
+  if (existing) { showToast(`${existing.text} is already on this list`); return existing.id; }
   const brought = shopping && list.items.find((item) => item.done && itemKey(item.text) === itemKey(name));
   if (brought) { change({ type: 'checkItem', id: brought.id, done: false }); return brought.id; } // already on the list, ticked: put it back
   const itemId = newId();

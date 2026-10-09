@@ -78,6 +78,21 @@ const PRODUCT_GROUPS = [
   ['pets', 'Pet supplies'], ['cupboard', 'Other food'], ['other', 'Other'],
 ].map(([id, name]) => ({ id, name }));
 
+// Research and evidence limits are recorded in docs/supermarket-layout-research.md.
+// These are editable department routes, never claimed to be branch aisle maps.
+const STORE_PROFILES = {
+  aldi: { name: 'Aldi', order: ['produce', 'meat', 'dairy', 'bakery', 'breakfast', 'tins', 'grains', 'sauces', 'baking', 'snacks', 'drinks', 'household', 'toiletries', 'baby', 'pets', 'cupboard', 'frozen', 'other'] },
+  morrisons: { name: 'Morrisons', order: ['produce', 'bakery', 'meat', 'dairy', 'tins', 'grains', 'sauces', 'baking', 'breakfast', 'snacks', 'drinks', 'household', 'pets', 'toiletries', 'baby', 'cupboard', 'frozen', 'other'] },
+  lidl: { name: 'Lidl', order: ['produce', 'bakery', 'meat', 'dairy', 'tins', 'grains', 'sauces', 'breakfast', 'baking', 'snacks', 'household', 'toiletries', 'baby', 'pets', 'drinks', 'cupboard', 'frozen', 'other'] },
+  tesco: { name: 'Tesco', order: ['produce', 'meat', 'dairy', 'bakery', 'grains', 'tins', 'sauces', 'baking', 'breakfast', 'snacks', 'drinks', 'baby', 'toiletries', 'household', 'pets', 'cupboard', 'frozen', 'other'] },
+};
+function storeGroups(store, saved = []) {
+  const profile = STORE_PROFILES[store];
+  if (!profile) return AISLE_GROUPS;
+  const ids = [...new Set([...saved.filter((id) => AISLE_GROUPS.some((group) => group.id === id)), ...profile.order])];
+  return ids.map((id) => AISLE_GROUPS.find((group) => group.id === id));
+}
+
 // Each catalogue entry supplies both classifications; storage temperature is
 // relevant to the aisle, while product type describes the food itself.
 const SUPERMARKET_SECTIONS = [
@@ -113,9 +128,9 @@ const SUPERMARKET_SECTIONS = [
   ['pets', 'pets', 'Cat food|Dry cat food|Wet cat food|Cat treats|Cat litter|Dog food|Dry dog food|Wet dog food|Dog treats|Dog poo bags|Bird seed|Rabbit food|Hay|Fish food'],
 ];
 const SUPERMARKET_ITEMS = SUPERMARKET_SECTIONS.flatMap(([aisle, product, names]) => names.split('|').map((text) => ({ text, aisle, product })));
-const SHOPPING_CLASSIFICATIONS = new Map(SUPERMARKET_ITEMS.map((entry) => [entry.text.toLowerCase(), entry]));
+const SHOPPING_CLASSIFICATIONS = new Map(SUPERMARKET_ITEMS.map((entry) => [ShoppingCore.key(entry.text), entry]));
 function shoppingGroup(item, mode) {
-  const text = item.text.toLowerCase().trim();
+  const text = ShoppingCore.key(item.text);
   const match = SHOPPING_CLASSIFICATIONS.get(text);
   const legacy = groupOf(item);
   // Keep a person's explicit item-group correction, where it differs from the guess.

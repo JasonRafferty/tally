@@ -14,6 +14,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import './public/shopping-core.js';
 
 const ROOT = resolve(import.meta.dirname, 'public');
 const PORT = Number(process.env.PORT) || 4175;
@@ -27,6 +28,8 @@ const MAX_BODY = 256 * 1024;
 const MAX_TEXT = 500;
 const PEOPLE = ['jason', 'wah'];
 const GROUPS = ['produce', 'bakery', 'dairy', 'meat', 'frozen', 'cupboard', 'drinks', 'household', 'other'];
+const STORES = ['aldi', 'morrisons', 'lidl', 'tesco'];
+const AISLES = ['produce', 'bakery', 'meat', 'dairy', 'frozen', 'tins', 'grains', 'breakfast', 'baking', 'sauces', 'snacks', 'drinks', 'household', 'toiletries', 'baby', 'pets', 'cupboard', 'other'];
 
 // --- storage ------------------------------------------------------------------------------
 mkdirSync(DATA_DIR, { recursive: true });
@@ -72,6 +75,10 @@ db.exec(`
     last INTEGER NOT NULL
   );
   INSERT OR IGNORE INTO meta (key, value) VALUES ('version', 1);
+  CREATE TABLE IF NOT EXISTS purchases (
+    key TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 1,
+    first INTEGER NOT NULL, last INTEGER NOT NULL, interval_ms REAL
+  );
 `);
 
 // Upgrades: databases made before a column existed get it added, with a safe default.
@@ -81,6 +88,7 @@ if (!hasColumn('lists', 'kind')) db.exec(`ALTER TABLE lists ADD COLUMN kind TEXT
 if (!hasColumn('lists', 'owner')) db.exec(`ALTER TABLE lists ADD COLUMN owner TEXT NOT NULL DEFAULT 'jason'`);
 if (!hasColumn('lists', 'shared')) db.exec(`ALTER TABLE lists ADD COLUMN shared INTEGER NOT NULL DEFAULT 0`);
 if (!hasColumn('lists', 'grouping')) db.exec(`ALTER TABLE lists ADD COLUMN grouping TEXT NOT NULL DEFAULT 'aisle'`);
+if (!hasColumn('lists', 'aisle_orders')) db.exec(`ALTER TABLE lists ADD COLUMN aisle_orders TEXT NOT NULL DEFAULT '{}'`);
 if (!hasColumn('items', 'added_by')) db.exec(`ALTER TABLE items ADD COLUMN added_by TEXT`);
 if (!hasColumn('items', 'done_by')) db.exec(`ALTER TABLE items ADD COLUMN done_by TEXT`);
 if (!hasColumn('items', 'qty')) db.exec(`ALTER TABLE items ADD COLUMN qty TEXT NOT NULL DEFAULT ''`);
@@ -93,8 +101,15 @@ db.exec(`INSERT OR IGNORE INTO history (key, text, qty, grp, count, last)
 const sql = {
   version: db.prepare(`SELECT value FROM meta WHERE key = 'version'`),
   bump: db.prepare(`UPDATE meta SET value = value + 1 WHERE key = 'version'`),
-  lists: db.prepare(`SELECT id, name, kind, owner, shared, theme, grouping, created FROM lists ORDER BY created`),
+  lists: db.prepare(`SELECT id, name, kind, owner, shared, theme, grouping, aisle_orders AS aisleOrders, created FROM lists ORDER BY created`),
   setGrouping: db.prepare(`UPDATE lists SET grouping = ? WHERE id = ?`),
+  setAisleOrder: db.prepare(`UPDATE lists SET aisle_orders = json_set(aisle_orders, ?, json(?)) WHERE id = ?`),
+  listItems: db.prepare(`SELECT id, text, done FROM items WHERE list_id = ?`),
+  purchaseItem: db.prepare(`SELECT i.text, i.done, l.kind FROM items i JOIN lists l ON l.id = i.list_id WHERE i.id = ?`),
+  purchases: db.prepare(`SELECT * FROM purchases`),
+  purchase: db.prepare(`INSERT INTO purchases (key, first, last) VALUES (?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET interval_ms = ((count - 1) * COALESCE(interval_ms, 0) + excluded.last - last) / count, count = count + 1, last = excluded.last
+    WHERE excluded.last - last >= 21600000`),
   items: db.prepare(`SELECT id, list_id AS listId, text, done, created, done_at AS doneAt, added_by AS addedBy, done_by AS doneBy, qty, grp FROM items ORDER BY created`),
   addList: db.prepare(`INSERT OR IGNORE INTO lists (id, name, kind, owner, shared, theme, created) VALUES (?, ?, ?, ?, ?, ?, ?)`),
   setShared: db.prepare(`UPDATE lists SET shared = ? WHERE id = ?`),
@@ -109,7 +124,7 @@ const sql = {
   remember: db.prepare(`INSERT INTO history (key, text, qty, grp, count, last) VALUES (?, ?, ?, ?, 1, ?)
     ON CONFLICT(key) DO UPDATE SET text = excluded.text, qty = excluded.qty, grp = excluded.grp, count = count + 1, last = excluded.last`),
   refine: db.prepare(`UPDATE history SET qty = ?, grp = ? WHERE key = ?`),
-  history: db.prepare(`SELECT text, qty, grp, count FROM history ORDER BY last DESC LIMIT 800`),
+  history: db.prepare(`SELECT text, qty, grp, count, last FROM history ORDER BY last DESC LIMIT 800`),
   editItem: db.prepare(`UPDATE items SET text = ? WHERE id = ?`),
   checkItem: db.prepare(`UPDATE items SET done = ?, done_at = ?, done_by = ? WHERE id = ?`),
   deleteItem: db.prepare(`DELETE FROM items WHERE id = ?`),
@@ -123,10 +138,15 @@ const version = () => sql.version.get().value;
 function snapshot(who) {
   const lists = sql.lists.all()
     .filter((list) => list.shared === 1 || list.owner === who)
-    .map((list) => ({ ...list, shared: list.shared === 1, items: [] }));
+    .map((list) => ({ ...list, aisleOrders: JSON.parse(list.aisleOrders), shared: list.shared === 1, items: [] }));
   const byId = new Map(lists.map((list) => [list.id, list]));
   for (const item of sql.items.all()) byId.get(item.listId)?.items.push({ ...item, done: item.done === 1 });
-  return { version: version(), lists, history: sql.history.all() };
+  const purchases = new Map(sql.purchases.all().map((entry) => [entry.key, entry]));
+  const history = sql.history.all().map((entry) => {
+    const bought = purchases.get(ShoppingCore.key(entry.text));
+    return { ...entry, purchaseCount: bought?.count ?? 0, lastPurchased: bought?.last ?? null, purchaseInterval: bought?.interval_ms ?? null };
+  });
+  return { version: version(), lists, history };
 }
 
 // The app sends changes as a queue of small operations, so edits made offline can be replayed later.
@@ -134,7 +154,7 @@ function snapshot(who) {
 const id = (value) => typeof value === 'string' && /^[\w-]{1,64}$/.test(value);
 const text = (value) => (typeof value === 'string' ? value.trim().slice(0, MAX_TEXT) : '');
 const qty = (value) => (typeof value === 'string' ? value.trim().slice(0, 40) : '');
-const historyKey = (value) => text(value).toLowerCase().replace(/\s+/g, ' ');
+const historyKey = (value) => ShoppingCore.key(text(value));
 const group = (value) => (GROUPS.includes(value) ? value : null);
 const person = (value) => (PEOPLE.includes(value) ? value : null);
 const time = (value) => (Number.isFinite(value) && value > 0 ? Math.floor(value) : Date.now());
@@ -142,12 +162,20 @@ const time = (value) => (Number.isFinite(value) && value > 0 ? Math.floor(value)
 const OPS = {
   addList: (op) => id(op.id) && text(op.name) && sql.addList.run(op.id, text(op.name), op.kind === 'shopping' ? 'shopping' : 'todo', person(op.by) ?? 'jason', op.shared ? 1 : 0, Number(op.theme) || 0, time(op.at)),
   setShared: (op) => id(op.id) && sql.setShared.run(op.shared ? 1 : 0, op.id),
-  setGrouping: (op) => id(op.id) && ['off', 'product', 'aisle'].includes(op.grouping) && sql.setGrouping.run(op.grouping, op.id),
+  setGrouping: (op) => id(op.id) && ['off', 'product', 'aisle', ...STORES].includes(op.grouping) && sql.setGrouping.run(op.grouping, op.id),
+  setAisleOrder: (op) => {
+    if (!id(op.id) || !STORES.includes(op.store) || !Array.isArray(op.order) || op.order.length > AISLES.length || op.order.some((item) => !AISLES.includes(item)) || new Set(op.order).size !== op.order.length) return;
+    sql.setAisleOrder.run(`$.${op.store}`, JSON.stringify(op.order), op.id);
+  },
   renameList: (op) => id(op.id) && text(op.name) && sql.renameList.run(text(op.name), op.id),
   setTheme: (op) => id(op.id) && Number.isInteger(op.theme) && op.theme >= 0 && sql.setTheme.run(op.theme, op.id),
   deleteList: (op) => id(op.id) && sql.deleteList.run(op.id),
   addItem: (op) => {
     if (!id(op.id) || !id(op.listId) || !text(op.text)) return;
+    if (sql.listKind.get(op.listId)?.kind === 'shopping') {
+      const same = sql.listItems.all(op.listId).find((item) => !item.done && historyKey(item.text) === historyKey(op.text));
+      if (same) return; // Also prevents duplicates from two phones syncing offline.
+    }
     const added = sql.addItem.run(op.id, text(op.text), time(op.at), person(op.by), qty(op.qty), group(op.grp), op.listId);
     if (added.changes && sql.listKind.get(op.listId)?.kind === 'shopping') sql.remember.run(historyKey(op.text), text(op.text), qty(op.qty), group(op.grp), time(op.at));
   },
@@ -160,7 +188,13 @@ const OPS = {
     const item = sql.shoppingItem.get(op.id);
     if (item) sql.refine.run(item.qty, item.grp, historyKey(item.text));
   },
-  checkItem: (op) => id(op.id) && sql.checkItem.run(op.done ? 1 : 0, op.done ? time(op.at) : null, op.done ? person(op.by) : null, op.id),
+  checkItem: (op) => {
+    if (!id(op.id)) return;
+    const item = sql.purchaseItem.get(op.id);
+    const at = time(op.at);
+    if (op.done && item && !item.done && item.kind === 'shopping') sql.purchase.run(historyKey(item.text), at, at);
+    sql.checkItem.run(op.done ? 1 : 0, op.done ? at : null, op.done ? person(op.by) : null, op.id);
+  },
   deleteItem: (op) => id(op.id) && sql.deleteItem.run(op.id),
   clearDone: (op) => id(op.listId) && sql.clearDone.run(op.listId),
 };
