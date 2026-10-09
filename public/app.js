@@ -257,10 +257,11 @@ function renderHome() {
   const together = lists.filter((list) => kindOf(list) === view && list.shared).map((list) => ({ list, activity: latestActivity(list) })).sort((x, y) => y.activity.at - x.activity.at);
   $('#together-wrap').hidden = !together.length;
   $('#together').innerHTML = together.map(({ list, activity }, i) => {
+    const [a, b] = themeOf(list);
     const left = list.items.filter((item) => !item.done).length;
     const picked = selected?.has(list.id);
-    return `<button type="button" class="card${picked ? ' selected' : ''}" ${selected ? `aria-pressed="${picked}"` : ''} data-list="${escapeHtml(list.id)}" style="--delay:${60 + i * 35}ms">
-      <span class="duo" aria-hidden="true"><b class="j">J</b><b class="w">W</b></span>
+    return `<button type="button" class="card${picked ? ' selected' : ''}" ${selected ? `aria-pressed="${picked}"` : ''} data-list="${escapeHtml(list.id)}" style="--ga:${a};--gb:${b};--delay:${60 + i * 35}ms">
+      <span class="icon">${listIcon(list)}</span>
       <span class="copy"><b>${escapeHtml(list.name)}</b><small>${activity.html}</small></span>
       <span class="side"><span class="ago">${ago(activity.at)}</span>${list.items.length ? (left ? `<span class="count">${left} left</span>` : '<span class="count all-done">Done</span>') : ''}</span>
     </button>`;
@@ -294,12 +295,14 @@ function renderHome() {
 }
 
 function itemRow(item, fresh, shared) {
+  const shopping = kindOf(currentList()) === 'shopping' && !item.done;
+  const count = ShoppingCore.quantity(item.qty ?? '').count;
   const by = shared && PEOPLE[item.addedBy] ? `<span class="by ${item.addedBy === 'wah' ? 'w' : 'j'}" title="Added by ${PEOPLE[item.addedBy].name}">${PEOPLE[item.addedBy].initial}</span>` : '';
   return `<li class="item${item.done ? ' is-done' : ''}${fresh ? ' arrive' : ''}" data-item="${escapeHtml(item.id)}">
     <button type="button" class="check" role="checkbox" aria-checked="${item.done}" data-toggle>
       <span class="box">${TICK}</span><span class="item-main"><span class="item-text">${escapeHtml(item.text)}</span>${item.qty ? `<span class="qty">${escapeHtml(item.qty)}</span>` : ''}</span>
-    </button>${by}
-    <button type="button" class="edit" data-edit aria-label="Edit ${escapeHtml(item.text)}">${PENCIL}</button>
+    </button>
+    ${shopping ? `<span class="quantity-controls" role="group" aria-label="Quantity for ${escapeHtml(item.text)}"><button type="button" data-quantity="-1" aria-label="${count === 1 ? 'Remove' : 'Decrease quantity of'} ${escapeHtml(item.text)}">−</button><span aria-live="polite">${count}</span><button type="button" data-quantity="1" aria-label="Increase quantity of ${escapeHtml(item.text)}">+</button></span>` : ''}${by}
   </li>`;
 }
 
@@ -471,34 +474,9 @@ let sheetActions = null;
 const swatches = $('#swatches');
 const pinToggle = $('#pin-toggle');
 const shareToggle = $('#share-toggle');
-const qtyField = $('#edit-qty');
 const groupField = $('#edit-grp');
 groupField.innerHTML = GROUPS.map((group) => `<option value="${group.id}">${group.name}</option>`).join('');
-let editAisleOrders = {};
-function renderAisleSettings() {
-  const store = $('#edit-grouping').value;
-  const profile = STORE_PROFILES[store];
-  $('#aisle-settings').hidden = $('#grouping-setting').hidden || !profile;
-  $('#store-layout-note').hidden = $('#aisle-settings').hidden;
-  if (!profile) return;
-  const groups = storeGroups(store, editAisleOrders[store] ?? []);
-  $('#aisle-order').innerHTML = groups.map((group, i) => `<div class="aisle-order-row"><span>${group.name}</span><button type="button" data-aisle-index="${i}" data-aisle-step="-1" aria-label="Move ${group.name} up" ${i === 0 ? 'disabled' : ''}>↑</button><button type="button" data-aisle-index="${i}" data-aisle-step="1" aria-label="Move ${group.name} down" ${i === groups.length - 1 ? 'disabled' : ''}>↓</button></div>`).join('');
-}
-$('#edit-grouping').addEventListener('change', renderAisleSettings);
-$('#aisle-order').addEventListener('click', (event) => {
-  const button = event.target.closest('[data-aisle-index]');
-  if (!button) return;
-  const store = $('#edit-grouping').value;
-  const ids = storeGroups(store, editAisleOrders[store] ?? []).map((group) => group.id);
-  const from = Number(button.dataset.aisleIndex), to = from + Number(button.dataset.aisleStep);
-  if (to < 0 || to >= ids.length) return;
-  [ids[from], ids[to]] = [ids[to], ids[from]];
-  editAisleOrders[store] = ids;
-  renderAisleSettings();
-  $('#aisle-order').querySelector(`[data-aisle-index="${to}"][data-aisle-step="${button.dataset.aisleStep}"]`)?.focus({ preventScroll: true });
-});
-$('#reset-aisles').addEventListener('click', () => { editAisleOrders[$('#edit-grouping').value] = []; renderAisleSettings(); });
-function openSheet({ title, value = '', placeholder = '', qty, group, grouping, aisleOrders, theme, pinned, shared, onSave, onDelete }) {
+function openSheet({ title, value = '', placeholder = '', group, grouping, theme, pinned, shared, onSave, onDelete }) {
   sheetActions = { onSave, onDelete };
   $('#edit-title').textContent = title;
   editForm.text.value = value;
@@ -508,15 +486,10 @@ function openSheet({ title, value = '', placeholder = '', qty, group, grouping, 
   swatches.innerHTML = THEMES.map(([a, b], i) => `<button type="button" role="radio" aria-checked="${i === theme}" aria-label="Colour ${i + 1}" data-theme="${i}" style="--ga:${a};--gb:${b}">${TICK}</button>`).join('');
   pinToggle.hidden = pinned === undefined;
   pinToggle.setAttribute('aria-pressed', Boolean(pinned));
-  qtyField.hidden = qty === undefined;
-  qtyField.value = qty ?? '';
   groupField.hidden = group === undefined;
   if (group !== undefined) groupField.value = group;
   $('#grouping-setting').hidden = grouping === undefined;
   $('#edit-grouping').value = grouping ?? 'aisle';
-  editAisleOrders = structuredClone(aisleOrders ?? {});
-  $('#aisle-settings').open = false;
-  renderAisleSettings();
   shareToggle.hidden = shared === undefined;
   shareToggle.setAttribute('aria-pressed', Boolean(shared));
   $('#share-title').textContent = me ? `Share with ${PEOPLE[otherPerson()].name}` : 'Share';
@@ -540,7 +513,7 @@ editForm.addEventListener('submit', (event) => {
   // A switch that isn't on show for this sheet reports nothing, so it can't change anything.
   const on = (button) => (button.hidden ? undefined : button.getAttribute('aria-pressed') === 'true');
   if (!value) return;
-  const options = { theme, pinned: on(pinToggle), shared: on(shareToggle), grouping: $('#grouping-setting').hidden ? undefined : $('#edit-grouping').value, aisleOrders: editAisleOrders, qty: qtyField.hidden ? undefined : qtyField.value.trim(), group: groupField.hidden ? undefined : groupField.value };
+  const options = { theme, pinned: on(pinToggle), shared: on(shareToggle), grouping: $('#grouping-setting').hidden ? undefined : $('#edit-grouping').value, group: groupField.hidden ? undefined : groupField.value };
   // Finish the dialog's focus restoration before navigating to a different page.
   editForm.text.blur();
   editSheet.close();
@@ -574,7 +547,6 @@ function listMenu(list) {
   const mine = ownerOf(list) === me; // only the person who made a list can share or unshare it
   openSheet({ title: 'Edit list', value: list.name, theme: editColour ? theme : undefined, grouping: kindOf(list) === 'shopping' ? list.grouping ?? 'aisle' : undefined, aisleOrders: list.aisleOrders, pinned: list.shared ? undefined : pinned, shared: mine ? Boolean(list.shared) : undefined, onSave: (name, options) => {
     const ops = [];
-    for (const [store, order] of Object.entries(options.aisleOrders)) if (JSON.stringify(order) !== JSON.stringify(list.aisleOrders?.[store])) ops.push({ type: 'setAisleOrder', id: list.id, store, order });
     if (options.grouping !== undefined && options.grouping !== (list.grouping ?? 'aisle')) ops.push({ type: 'setGrouping', id: list.id, grouping: options.grouping });
     if (name !== list.name) ops.push({ type: 'renameList', id: list.id, name });
     if (options.theme !== undefined && options.theme !== theme) ops.push({ type: 'setTheme', id: list.id, theme: options.theme });
@@ -601,8 +573,8 @@ function deleteItemWithUndo(item) {
 
 function itemMenu(item) {
   const shopping = kindOf(lists.find((list) => list.id === item.listId)) === 'shopping';
-  openSheet({ title: 'Edit item', value: item.text, qty: shopping ? item.qty ?? '' : undefined, group: shopping ? groupOf(item) : undefined, onSave: (text, { qty, group }) => {
-    change({ type: 'editItem', id: item.id, text, ...(qty !== undefined && { qty }), ...(group !== undefined && { grp: group }) });
+  openSheet({ title: 'Edit item', value: item.text, group: shopping ? groupOf(item) : undefined, onSave: (text, { group }) => {
+    change({ type: 'editItem', id: item.id, text, ...(group !== undefined && { grp: group }) });
     render();
   }, onDelete: () => deleteItemWithUndo(item) });
 }
@@ -834,6 +806,14 @@ document.addEventListener('click', (event) => {
   if (!row) return;
   const item = findItem(lists, row.dataset.item);
   if (!item) return;
+  const quantityButton = target.closest('[data-quantity]');
+  if (quantityButton && kindOf(currentList()) === 'shopping' && !item.done) {
+    if (Number(quantityButton.dataset.quantity) < 0 && ShoppingCore.quantity(item.qty ?? '').count <= 1) return deleteItemWithUndo(item);
+    change({ type: 'editItem', id: item.id, text: item.text, qty: ShoppingCore.stepQuantity(item.qty ?? '', Number(quantityButton.dataset.quantity)) });
+    render();
+    document.querySelector(`[data-item="${CSS.escape(item.id)}"] [data-quantity="${quantityButton.dataset.quantity}"]`)?.focus({ preventScroll: true });
+    return;
+  }
   if (target.closest('[data-edit]')) return itemMenu(item);
   if (target.closest('[data-toggle]')) {
     const done = !item.done;
@@ -859,7 +839,7 @@ document.addEventListener('pointerdown', (event) => {
   cancelHold();
   const target = event.target.closest('[data-list], [data-item]');
   if (!target || event.button > 0) return;
-  if (event.target.closest('[data-edit], input')) return;
+  if (event.target.closest('[data-edit], [data-quantity], input')) return;
   hold = { x: event.clientX, y: event.clientY, timer: setTimeout(() => {
     held = true;
     navigator.vibrate?.(12);
@@ -880,7 +860,7 @@ let swipe = null;
 document.addEventListener('touchstart', (event) => {
   const t = event.touches[0];
   const back = document.body.dataset.view === 'list';
-  const blocked = selected || event.touches.length > 1 || document.querySelector('dialog[open]') || event.target.closest('dialog, .select-bar, .install, input, select, .suggest');
+  const blocked = selected || event.touches.length > 1 || document.querySelector('dialog[open]') || event.target.closest('dialog, .select-bar, .install, input, select, .suggest, [data-quantity]');
   swipe = blocked ? null : { x: t.clientX, y: t.clientY, at: performance.now(), horizontal: false, back };
 }, { passive: true });
 document.addEventListener('touchmove', (event) => {

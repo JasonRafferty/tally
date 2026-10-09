@@ -56,9 +56,9 @@ docker cp tally:/data ./tally-backup
 ## Good to know
 
 Shopping list Edit offers Off, Product type, Aldi, Morrisons, Lidl and Tesco.
-Store routes are suggested department orders, not exact branch maps. Use
-**Adjust aisle order** to match your shop; each store's adjustments are saved
-with the list and shared between both phones. Research and its limits are in
+Store routes use researched suggested department orders, not exact branch maps.
+The grouping choice is saved with the list and shared between both phones.
+Research and its limits are in
 [`docs/supermarket-layout-research.md`](docs/supermarket-layout-research.md).
 
 Shopping suggestions understand common typos and grocery aliases. Duplicate

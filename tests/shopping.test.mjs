@@ -7,6 +7,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import '../public/shopping-core.js';
 
+test('shopping quantity controls count units and preserve pack sizes', () => {
+  assert.equal(ShoppingCore.stepQuantity('', 1), '×2');
+  assert.equal(ShoppingCore.stepQuantity('×2', 1), '×3');
+  assert.equal(ShoppingCore.stepQuantity('3', -1), '×2');
+  assert.equal(ShoppingCore.stepQuantity('×1', -1), '×1');
+  assert.equal(ShoppingCore.stepQuantity('500g', 1), '500g ×2');
+  assert.equal(ShoppingCore.stepQuantity('500g ×2', -1), '500g');
+  assert.equal(ShoppingCore.stepQuantity('2L', 1), '2L ×2');
+});
+
 test('normalisation and typo matching retain distinct products', () => {
   assert.equal(ShoppingCore.key(' MILK '), ShoppingCore.key('milk'));
   assert.equal(ShoppingCore.key('washing-up liquid'), ShoppingCore.key('dish soap'));

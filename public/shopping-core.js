@@ -25,5 +25,18 @@ globalThis.ShoppingCore = (() => {
     }
     return rows[a.length][b.length];
   }
-  return Object.freeze({ key, distance });
+  // Count packs separately from a free-text pack size such as "500g".
+  function quantity(value = '') {
+    const text = value.trim();
+    const count = text.match(/^[×x]?\s*(\d+)$/i);
+    if (count) return { count: Math.max(1, Number(count[1])), size: '' };
+    const packs = text.match(/^(.*?)\s+×(\d+)$/);
+    return packs ? { count: Math.max(1, Number(packs[2])), size: packs[1] } : { count: 1, size: text };
+  }
+  function stepQuantity(value, step) {
+    const { count, size } = quantity(value);
+    const next = Math.max(1, count + step);
+    return size ? (next === 1 ? size : `${size} ×${next}`) : `×${next}`;
+  }
+  return Object.freeze({ key, distance, quantity, stepQuantity });
 })();
