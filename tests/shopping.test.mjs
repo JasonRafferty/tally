@@ -79,4 +79,14 @@ test('shared settings, offline duplicates and regular purchases persist', async 
   assert.equal(state.lists[0].grouping, 'aldi');
   assert.deepEqual(state.lists[0].aisleOrders.aldi, ['bakery', 'produce']);
   assert.equal(state.history.find((entry) => entry.text === 'Milk').purchaseCount, 3);
+  const integrated = { requestId: 'simmer-retry', expectedVersion: state.version, ops: [{ type: 'editItem', id: 'oat', text: 'Oat milk', qty: '1100 ml' }], result: { listId: 'shared', count: 1 } };
+  const integration = (body) => fetch(`${base}/api/integrations/simmer`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Who': 'jason' }, body: JSON.stringify(body) });
+  assert.equal((await integration(integrated)).status, 200);
+  await stop(); await start();
+  const replay = await integration(integrated); assert.equal(replay.status, 200); assert.deepEqual(await replay.json(), integrated.result);
+  const after = await (await fetch(`${base}/api/state`, { headers: { 'X-Who': 'jason' } })).json();
+  assert.equal(after.version, integrated.expectedVersion + 1);
+  assert.equal(after.lists[0].items.find(i => i.id === 'oat').qty, '1100 ml');
+  assert.equal((await integration({ ...integrated, requestId: 'stale-send' })).status, 409);
+  assert.equal((await integration({ ...integrated, ops: [{ type: 'editItem', id: 'oat', text: 'Oat milk', qty: '2 l' }] })).status, 409);
 });

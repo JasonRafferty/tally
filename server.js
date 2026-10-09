@@ -82,6 +82,7 @@ db.exec(`
 `);
 
 // Upgrades: databases made before a column existed get it added, with a safe default.
+db.exec('CREATE TABLE IF NOT EXISTS integration_receipts (id TEXT PRIMARY KEY, digest TEXT NOT NULL, result TEXT NOT NULL)');
 const hasColumn = (table, column) => db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
 if (!hasColumn('lists', 'kind')) db.exec(`ALTER TABLE lists ADD COLUMN kind TEXT NOT NULL DEFAULT 'todo'`);
 // Lists made before owners existed belong to Jason and stay private to him.
@@ -199,11 +200,12 @@ const OPS = {
   clearDone: (op) => id(op.listId) && sql.clearDone.run(op.listId),
 };
 
-function applyOps(ops) {
+function applyOps(ops, receipt) {
   db.exec('BEGIN');
   try {
     for (const op of ops) OPS[op?.type]?.(op);
     sql.bump.run();
+    if (receipt) db.prepare('INSERT INTO integration_receipts VALUES(?,?,?)').run(receipt.id, receipt.digest, JSON.stringify(receipt.result));
     db.exec('COMMIT');
   } catch (error) {
     db.exec('ROLLBACK');
@@ -287,6 +289,16 @@ async function api(req, res, path) {
   const who = person(req.headers['x-who']);
 
   if (path === '/api/events' && req.method === 'GET') return listen(req, res);
+  if (path === '/api/integrations/simmer' && req.method === 'POST') {
+    const body = await readJson(req);
+    if (!id(body.requestId) || !Array.isArray(body.ops) || !body.ops.length || body.ops.length > 250 || body.ops.some(op => !['addList', 'addItem', 'editItem'].includes(op?.type))) return send(res, 400, { error: 'Invalid Simmer send' });
+    const digest = createHash('sha256').update(JSON.stringify({ ops: body.ops, result: body.result })).digest('hex');
+    const previous = db.prepare('SELECT * FROM integration_receipts WHERE id=?').get(body.requestId);
+    if (previous) return previous.digest === digest ? send(res, 200, JSON.parse(previous.result)) : send(res, 409, { error: 'Send identifier already used for different changes' });
+    if (body.expectedVersion !== version()) return send(res, 409, { error: 'Tally changed. Review the refreshed preview before sending again.' });
+    applyOps(body.ops, { id: body.requestId, digest, result: body.result });
+    return send(res, 200, body.result);
+  }
   if (path === '/api/state' && req.method === 'GET') {
     // Cheap polling: the app passes the version it has, and gets 204 if nothing changed.
     const since = Number(new URL(req.url, 'http://x').searchParams.get('since'));
