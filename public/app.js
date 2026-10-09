@@ -259,11 +259,15 @@ function renderHome() {
   $('#together').innerHTML = together.map(({ list, activity }, i) => {
     const [a, b] = themeOf(list);
     const left = list.items.filter((item) => !item.done).length;
+    const total = list.items.length;
+    const completed = total - left;
+    const pct = total ? Math.round(completed / total * 100) : 0;
     const picked = selected?.has(list.id);
     return `<button type="button" class="card${picked ? ' selected' : ''}" ${selected ? `aria-pressed="${picked}"` : ''} data-list="${escapeHtml(list.id)}" style="--ga:${a};--gb:${b};--delay:${60 + i * 35}ms">
       <span class="icon">${listIcon(list)}</span>
       <span class="copy"><b>${escapeHtml(list.name)}</b><small>${activity.html}</small></span>
       <span class="side"><span class="ago">${ago(activity.at)}</span>${list.items.length ? (left ? `<span class="count">${left} left</span>` : '<span class="count all-done">Done</span>') : ''}</span>
+      <span class="shared-progress" role="progressbar" aria-label="Items completed" aria-valuemin="0" aria-valuemax="${total || 1}" aria-valuenow="${completed}" aria-valuetext="${completed} of ${total} items completed"><span style="width:${pct}%"></span></span>
     </button>`;
   }).join('');
 

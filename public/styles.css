@@ -128,6 +128,15 @@ body[data-view="list"] .together-wrap, body[data-view="list"] .who-line { displa
 .card .copy small em { color: var(--ink); font-style: normal; font-weight: 800; }
 .card .side { display: flex; flex: none; flex-direction: column; align-items: flex-end; gap: 6px; }
 .card .ago { color: #98a0b0; font-size: .7rem; font-weight: 700; }
+.card[data-list] { padding-bottom: 29px; background: linear-gradient(150deg, var(--ga), var(--gb)); color: #fff; box-shadow: 0 12px 24px -18px rgba(18, 24, 38, .5); }
+.card[data-list] .icon { background: rgba(255, 255, 255, .96); color: var(--gb); }
+.card[data-list] .copy { min-width: 0; }
+.card[data-list] .copy small, .card[data-list] .ago { color: rgba(255, 255, 255, .85); }
+.card[data-list] .copy small em { color: #fff; }
+.card[data-list] .count { background: rgba(255, 255, 255, .22); color: #fff; }
+.card[data-list] .count.all-done { background: #fff; color: var(--gb); }
+.shared-progress { position: absolute; left: 16px; right: 16px; bottom: 12px; height: 5px; overflow: hidden; border-radius: 99px; background: rgba(255, 255, 255, .25); }
+.shared-progress > span { display: block; height: 100%; border-radius: inherit; background: #fff; transition: width .25s ease; }
 .card.selected { box-shadow: 0 0 0 3px var(--ink), 0 14px 30px -18px rgba(18, 24, 38, .35); }
 .selecting .card:not(.selected) { transform: scale(.98); }
 .duo { display: inline-flex; flex: none; }
