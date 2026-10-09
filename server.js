@@ -80,6 +80,7 @@ if (!hasColumn('lists', 'kind')) db.exec(`ALTER TABLE lists ADD COLUMN kind TEXT
 // Lists made before owners existed belong to Jason and stay private to him.
 if (!hasColumn('lists', 'owner')) db.exec(`ALTER TABLE lists ADD COLUMN owner TEXT NOT NULL DEFAULT 'jason'`);
 if (!hasColumn('lists', 'shared')) db.exec(`ALTER TABLE lists ADD COLUMN shared INTEGER NOT NULL DEFAULT 0`);
+if (!hasColumn('lists', 'grouping')) db.exec(`ALTER TABLE lists ADD COLUMN grouping TEXT NOT NULL DEFAULT 'aisle'`);
 if (!hasColumn('items', 'added_by')) db.exec(`ALTER TABLE items ADD COLUMN added_by TEXT`);
 if (!hasColumn('items', 'done_by')) db.exec(`ALTER TABLE items ADD COLUMN done_by TEXT`);
 if (!hasColumn('items', 'qty')) db.exec(`ALTER TABLE items ADD COLUMN qty TEXT NOT NULL DEFAULT ''`);
@@ -92,7 +93,8 @@ db.exec(`INSERT OR IGNORE INTO history (key, text, qty, grp, count, last)
 const sql = {
   version: db.prepare(`SELECT value FROM meta WHERE key = 'version'`),
   bump: db.prepare(`UPDATE meta SET value = value + 1 WHERE key = 'version'`),
-  lists: db.prepare(`SELECT id, name, kind, owner, shared, theme, created FROM lists ORDER BY created`),
+  lists: db.prepare(`SELECT id, name, kind, owner, shared, theme, grouping, created FROM lists ORDER BY created`),
+  setGrouping: db.prepare(`UPDATE lists SET grouping = ? WHERE id = ?`),
   items: db.prepare(`SELECT id, list_id AS listId, text, done, created, done_at AS doneAt, added_by AS addedBy, done_by AS doneBy, qty, grp FROM items ORDER BY created`),
   addList: db.prepare(`INSERT OR IGNORE INTO lists (id, name, kind, owner, shared, theme, created) VALUES (?, ?, ?, ?, ?, ?, ?)`),
   setShared: db.prepare(`UPDATE lists SET shared = ? WHERE id = ?`),
@@ -140,6 +142,7 @@ const time = (value) => (Number.isFinite(value) && value > 0 ? Math.floor(value)
 const OPS = {
   addList: (op) => id(op.id) && text(op.name) && sql.addList.run(op.id, text(op.name), op.kind === 'shopping' ? 'shopping' : 'todo', person(op.by) ?? 'jason', op.shared ? 1 : 0, Number(op.theme) || 0, time(op.at)),
   setShared: (op) => id(op.id) && sql.setShared.run(op.shared ? 1 : 0, op.id),
+  setGrouping: (op) => id(op.id) && ['off', 'product', 'aisle'].includes(op.grouping) && sql.setGrouping.run(op.grouping, op.id),
   renameList: (op) => id(op.id) && text(op.name) && sql.renameList.run(text(op.name), op.id),
   setTheme: (op) => id(op.id) && Number.isInteger(op.theme) && op.theme >= 0 && sql.setTheme.run(op.theme, op.id),
   deleteList: (op) => id(op.id) && sql.deleteList.run(op.id),

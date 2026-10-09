@@ -117,6 +117,13 @@
         <input name="text" maxlength="500" aria-labelledby="edit-title" enterkeyhint="done" required />
         <input name="qty" id="edit-qty" maxlength="40" placeholder="Quantity, e.g. 2 or 500 g" aria-label="Quantity" enterkeyhint="done" hidden />
         <select name="grp" id="edit-grp" aria-label="Group" hidden></select>
+        <label id="grouping-setting" hidden>Shopping list grouping
+          <select id="edit-grouping" name="grouping">
+            <option value="off">Off — one flat list</option>
+            <option value="product">By product type</option>
+            <option value="aisle">By UK supermarket aisle</option>
+          </select>
+        </label>
         <!-- list options only: colour and pin -->
         <div class="swatches" id="swatches" role="radiogroup" aria-label="Colour"></div>
         <button type="button" class="pin-toggle" id="pin-toggle" aria-pressed="false">
@@ -159,8 +166,8 @@
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"><span id="toast-text"></span><button type="button" id="toast-undo" hidden>Undo</button></div>
-    <script src="groups.js?v=1"></script>
+    <script src="groups.js?v=2"></script>
     <script src="icons.js?v=1"></script>
-    <script src="app.js?v=18"></script>
+    <script src="app.js?v=19"></script>
   </body>
 </html>
