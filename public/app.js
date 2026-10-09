@@ -52,9 +52,9 @@ const OPS = {
   deleteList: (all, op) => { const i = all.findIndex((l) => l.id === op.id); if (i >= 0) all.splice(i, 1); },
   addItem: (all, op) => {
     const list = all.find((l) => l.id === op.listId);
-    if (list && !list.items.some((item) => item.id === op.id)) list.items.push({ id: op.id, listId: op.listId, text: op.text, qty: op.qty ?? '', done: false, created: op.at, doneAt: null, addedBy: op.by ?? null, doneBy: null });
+    if (list && !list.items.some((item) => item.id === op.id)) list.items.push({ id: op.id, listId: op.listId, text: op.text, qty: op.qty ?? '', grp: op.grp ?? '', done: false, created: op.at, doneAt: null, addedBy: op.by ?? null, doneBy: null });
   },
-  editItem: (all, op) => { const item = findItem(all, op.id); if (item) { item.text = op.text; if (typeof op.qty === 'string') item.qty = op.qty; } },
+  editItem: (all, op) => { const item = findItem(all, op.id); if (item) { item.text = op.text; if (typeof op.qty === 'string') item.qty = op.qty; if (typeof op.grp === 'string') item.grp = op.grp; } },
   checkItem: (all, op) => { const item = findItem(all, op.id); if (item) Object.assign(item, { done: op.done, doneAt: op.done ? op.at : null, doneBy: op.done ? op.by ?? null : null }); },
   deleteItem: (all, op) => { for (const list of all) list.items = list.items.filter((item) => item.id !== op.id); },
   clearDone: (all, op) => { const list = all.find((l) => l.id === op.listId); if (list) list.items = list.items.filter((item) => !item.done); },
@@ -278,12 +278,21 @@ function itemRow(item, fresh, shared) {
   </li>`;
 }
 
+// Shopping lists are split under group headings, in the order you walk the shop.
+const groupOf = (item) => (GROUP_IDS.has(item.grp) ? item.grp : guessGroup(item.text));
+function groupedRows(items, fresh, shared) {
+  return GROUPS.map((group) => {
+    const inGroup = items.filter((item) => groupOf(item) === group.id);
+    return inGroup.length ? `<li class="group-head" role="presentation"><span>${group.name}</span><small>${inGroup.length}</small></li>${inGroup.map((item) => itemRow(item, fresh(item), shared)).join('')}` : '';
+  }).join('');
+}
+
 function renderList(list) {
   if (shownList !== list.id) { shownIds = null; shownList = list.id; }
   const fresh = (item) => shownIds && !shownIds.has(item.id) && !REDUCED_MOTION.matches;
   const todo = list.items.filter((item) => !item.done).sort((x, y) => y.created - x.created);
   const done = list.items.filter((item) => item.done).sort((x, y) => (y.doneAt ?? 0) - (x.doneAt ?? 0));
-  $('#todo').innerHTML = todo.map((item) => itemRow(item, fresh(item), list.shared)).join('');
+  $('#todo').innerHTML = kindOf(list) === 'shopping' ? groupedRows(todo, fresh, list.shared) : todo.map((item) => itemRow(item, fresh(item), list.shared)).join('');
   $('#done').innerHTML = doneOpen ? done.map((item) => itemRow(item, fresh(item), list.shared)).join('') : '';
   $('#done-head').hidden = !done.length;
   $('#done-count').textContent = `Done (${done.length})`;
@@ -388,7 +397,9 @@ const swatches = $('#swatches');
 const pinToggle = $('#pin-toggle');
 const shareToggle = $('#share-toggle');
 const qtyField = $('#edit-qty');
-function openSheet({ title, value = '', placeholder = '', qty, theme, pinned, shared, onSave, onDelete }) {
+const groupField = $('#edit-grp');
+groupField.innerHTML = GROUPS.map((group) => `<option value="${group.id}">${group.name}</option>`).join('');
+function openSheet({ title, value = '', placeholder = '', qty, group, theme, pinned, shared, onSave, onDelete }) {
   sheetActions = { onSave, onDelete };
   $('#edit-title').textContent = title;
   editForm.text.value = value;
@@ -400,6 +411,8 @@ function openSheet({ title, value = '', placeholder = '', qty, theme, pinned, sh
   pinToggle.setAttribute('aria-pressed', Boolean(pinned));
   qtyField.hidden = qty === undefined;
   qtyField.value = qty ?? '';
+  groupField.hidden = group === undefined;
+  if (group !== undefined) groupField.value = group;
   shareToggle.hidden = shared === undefined;
   shareToggle.setAttribute('aria-pressed', Boolean(shared));
   $('#share-title').textContent = me ? `Share with ${PEOPLE[otherPerson()].name}` : 'Share';
@@ -420,7 +433,7 @@ editForm.addEventListener('submit', () => {
   const theme = Number(swatches.querySelector('[aria-checked="true"]')?.dataset.theme);
   // A switch that isn't on show for this sheet reports nothing, so it can't change anything.
   const on = (button) => (button.hidden ? undefined : button.getAttribute('aria-pressed') === 'true');
-  if (value) sheetActions?.onSave(value, { theme, pinned: on(pinToggle), shared: on(shareToggle), qty: qtyField.hidden ? undefined : qtyField.value.trim() });
+  if (value) sheetActions?.onSave(value, { theme, pinned: on(pinToggle), shared: on(shareToggle), qty: qtyField.hidden ? undefined : qtyField.value.trim(), group: groupField.hidden ? undefined : groupField.value });
 });
 editSheet.querySelector('[data-sheet-cancel]').addEventListener('click', () => editSheet.close());
 editSheet.querySelector('[data-sheet-delete]').addEventListener('click', () => { editSheet.close(); sheetActions?.onDelete(); });
@@ -468,8 +481,8 @@ function listMenu(list) {
 
 function itemMenu(item) {
   const shopping = kindOf(lists.find((list) => list.id === item.listId)) === 'shopping';
-  openSheet({ title: 'Edit item', value: item.text, qty: shopping ? item.qty ?? '' : undefined, onSave: (text, { qty }) => {
-    change({ type: 'editItem', id: item.id, text, ...(qty !== undefined && { qty }) });
+  openSheet({ title: 'Edit item', value: item.text, qty: shopping ? item.qty ?? '' : undefined, group: shopping ? groupOf(item) : undefined, onSave: (text, { qty, group }) => {
+    change({ type: 'editItem', id: item.id, text, ...(qty !== undefined && { qty }), ...(group !== undefined && { grp: group }) });
     render();
   }, onDelete: () => {
     const saved = { ...item };
@@ -481,7 +494,7 @@ function itemMenu(item) {
 
 // Undo puts things back with their original ids and dates.
 const restoreItems = (items) => items.flatMap((item) => [
-  { type: 'addItem', id: item.id, listId: item.listId, text: item.text, qty: item.qty, by: item.addedBy, at: item.created },
+  { type: 'addItem', id: item.id, listId: item.listId, text: item.text, qty: item.qty, grp: item.grp, by: item.addedBy, at: item.created },
   ...(item.done ? [{ type: 'checkItem', id: item.id, done: true, by: item.doneBy, at: item.doneAt }] : []),
 ]);
 const restoreList = (list) => [{ type: 'addList', id: list.id, name: list.name, kind: kindOf(list), by: ownerOf(list), shared: Boolean(list.shared), theme: list.theme, at: list.created }, ...restoreItems(list.items)];
@@ -575,8 +588,11 @@ addForm.addEventListener('submit', (event) => {
   const list = currentList();
   const text = addInput.value.trim();
   if (!list || !text) return;
-  const { text: name, qty } = kindOf(list) === 'shopping' ? parseQuantity(text) : { text, qty: '' };
-  change({ type: 'addItem', id: newId(), listId: list.id, text: name, qty });
+  const shopping = kindOf(list) === 'shopping';
+  const parsed = shopping ? parseQuantity(text) : { text, qty: '' };
+  const name = shopping ? parsed.text.charAt(0).toUpperCase() + parsed.text.slice(1) : parsed.text;
+  const qty = parsed.qty;
+  change({ type: 'addItem', id: newId(), listId: list.id, text: name, qty, ...(shopping && { grp: guessGroup(name) }) });
   addInput.value = '';
   addForm.classList.remove('has-text');
   render();
