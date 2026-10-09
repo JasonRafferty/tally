@@ -389,7 +389,10 @@ function openList(listId) {
   location.hash = `#/list/${encodeURIComponent(listId)}`;
   history.replaceState({ fromHome: true }, ''); // mark the new entry, so the back button can just go back
 }
-function goHome() { if (history.state?.fromHome) history.back(); else location.hash = '#/'; }
+function goHome() {
+  document.activeElement?.blur();
+  if (history.state?.fromHome) history.back(); else location.hash = '#/';
+}
 window.addEventListener('hashchange', onRoute);
 
 // --- selecting lists: hold one, then tap more, to delete or pin them together ------------------
@@ -794,9 +797,13 @@ document.addEventListener('click', (event) => {
 let hold = null;
 let held = false;
 document.addEventListener('pointerdown', (event) => {
+  // A prevented swipe may produce no click. Never let its suppression swallow
+  // the next real tap (including the back/options buttons).
+  held = false;
+  cancelHold();
   const target = event.target.closest('[data-list], [data-item]');
   if (!target || event.button > 0) return;
-  held = false;
+  if (event.target.closest('[data-edit], input')) return;
   hold = { x: event.clientX, y: event.clientY, timer: setTimeout(() => {
     held = true;
     navigator.vibrate?.(12);
@@ -812,29 +819,37 @@ document.addEventListener('contextmenu', (event) => { if (event.target.closest('
 // iOS Safari only shows :active press styles when the page listens for touches.
 document.addEventListener('touchstart', () => {}, { passive: true });
 
-// Swipe sideways on the home screen to switch between To-do and Shopping.
+// Home swipes change kind; right swipes inside a list return home.
 let swipe = null;
 document.addEventListener('touchstart', (event) => {
   const t = event.touches[0];
-  const blocked = document.body.dataset.view !== 'home' || selected || event.touches.length > 1 || event.target.closest('dialog, .select-bar, .install');
-  swipe = blocked ? null : { x: t.clientX, y: t.clientY, at: performance.now(), horizontal: false };
+  const back = document.body.dataset.view === 'list';
+  const blocked = selected || event.touches.length > 1 || document.querySelector('dialog[open]') || event.target.closest('dialog, .select-bar, .install, input, select, .suggest');
+  swipe = blocked ? null : { x: t.clientX, y: t.clientY, at: performance.now(), horizontal: false, back };
 }, { passive: true });
 document.addEventListener('touchmove', (event) => {
   if (!swipe) return;
   const dx = event.touches[0].clientX - swipe.x;
   const dy = event.touches[0].clientY - swipe.y;
+  if (swipe.back && dx < -10) { swipe = null; return; } // Left remains item deletion.
   if (!swipe.horizontal && Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { swipe = null; return; }
   if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.5) swipe.horizontal = true;
   if (!swipe.horizontal) return;
   event.preventDefault();
   cancelHold();
+  if (swipe.back) {
+    finishItemSwipe(true);
+    document.activeElement?.blur();
+    if (!REDUCED_MOTION.matches) $('#list').style.transform = `translateX(${Math.max(0, dx)}px)`;
+    return;
+  }
   const blocked = (view === 'todo' && dx > 0) || (view === 'shopping' && dx < 0);
   const distance = blocked ? dx * .18 : dx;
   $('#home-content').dataset.drag = distance;
   if (!REDUCED_MOTION.matches) $('#home-content').style.transform = `translateX(${distance}px)`;
 }, { passive: false });
 function resetSwipe() {
-  const content = $('#home-content');
+  const content = swipe?.back ? $('#list') : $('#home-content');
   const from = content.style.transform || 'none';
   content.style.transform = '';
   delete content.dataset.drag;
@@ -847,6 +862,14 @@ document.addEventListener('touchend', (event) => {
   const dx = t.clientX - swipe.x;
   const dy = t.clientY - swipe.y;
   const velocity = Math.abs(dx) / Math.max(1, performance.now() - swipe.at);
+  if (swipe.back) {
+    if (dx < 60 && !(dx > 25 && velocity > .4) || dx < Math.abs(dy) * 1.5) { resetSwipe(); return; }
+    held = true;
+    $('#list').style.transform = '';
+    swipe = null;
+    goHome();
+    return;
+  }
   const next = dx < 0 ? 'shopping' : 'todo';
   if ((Math.abs(dx) < 60 && !(Math.abs(dx) > 25 && velocity > .4)) || Math.abs(dx) < Math.abs(dy) * 1.5 || next === view) { resetSwipe(); return; }
   held = true; // Suppress the tile click generated at the end of a swipe.
@@ -864,6 +887,7 @@ document.addEventListener('touchstart', (event) => {
 }, { passive: true });
 document.addEventListener('touchmove', (event) => {
   if (!itemSwipe) return;
+  if (swipe?.back && swipe.horizontal) { finishItemSwipe(true); return; }
   const dx = event.touches[0].clientX - itemSwipe.x;
   const dy = event.touches[0].clientY - itemSwipe.y;
   if (!itemSwipe.horizontal && Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { itemSwipe = null; return; }

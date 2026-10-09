@@ -19,6 +19,7 @@
 /* feel native on touch: no grey tap flash, no double-tap zoom delay, no link-preview menu on hold */
 html { -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; }
 a, button, input { touch-action: manipulation; }
+.list { touch-action: pan-y; }
 body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--bg); }
 h1, h2, p { margin: 0; }
 small { display: block; }
