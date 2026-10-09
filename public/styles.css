@@ -183,11 +183,17 @@ body.is-selecting .install { display: none; }
 .item-main { display: flex; flex-direction: column; min-width: 0; }
 .qty { margin-top: 1px; color: var(--muted); font-size: .78rem; font-weight: 700; }
 .item.is-done .qty { color: #a3aab8; }
-.item-text { min-width: 0; font-size: 1rem; font-weight: 650; line-height: 1.35; overflow-wrap: anywhere; transition: color .2s ease; }
+.item-text { min-width: 0; font-size: 1rem; font-weight: 650; line-height: 1.35; overflow-wrap: anywhere;
+  /* the strike-through is a line that draws across, rather than appearing at once */
+  background: linear-gradient(rgba(152, 160, 176, .75), rgba(152, 160, 176, .75)) no-repeat 0 58% / 0% 2px; transition: color .25s ease, background-size .32s cubic-bezier(.4, 0, .2, 1) .06s; }
 .item.is-done .box { box-shadow: none; }
 .item.is-done .box::before { opacity: 1; transform: none; }
 .item.is-done .box svg { stroke-dashoffset: 0; }
-.item.is-done .item-text { color: #98a0b0; text-decoration: line-through; text-decoration-thickness: 2px; text-decoration-color: rgba(152, 160, 176, .6); }
+.item.is-done .item-text { color: #98a0b0; background-size: 100% 2px; }
+/* ticking: the circle pops, then the row slides away to the Done section */
+.item.ticking .box { animation: box-pop .42s cubic-bezier(.2, .9, .3, 1.3); }
+.item.unticking .box { animation: box-pop .3s ease; }
+.item.leaving { opacity: 0; transform: translateX(22px) scale(.97); transition: opacity .26s ease, transform .26s ease; }
 .edit { display: grid; flex: none; place-items: center; width: 48px; height: 56px; border: 0; background: none; color: #a3aab8; cursor: pointer; }
 .edit svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 @media (hover: hover) {
@@ -254,6 +260,10 @@ body.is-selecting .install { display: none; }
 .ios-share { display: inline-block; width: 15px; height: 15px; margin: 0 1px -3px; fill: none; stroke: var(--ink); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 /* "Deleted" message with undo */
+/* a burst of confetti from the last tick, in the list's own colours */
+.burst { position: fixed; z-index: 50; width: 0; height: 0; pointer-events: none; }
+.burst i { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: var(--c); animation: burst .85s cubic-bezier(.12, .7, .3, 1) both; }
+.burst i:nth-child(3n) { width: 10px; height: 5px; border-radius: 2px; }
 .toast { position: fixed; left: 50%; bottom: max(24px, env(safe-area-inset-bottom)); z-index: 40; display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; border-radius: 99px; background: var(--dark); color: #fff; font-size: .88rem; font-weight: 700; white-space: nowrap; box-shadow: 0 10px 30px -10px rgba(0, 0, 0, .5); opacity: 0; transform: translate(-50%, 12px); transition: opacity .2s ease, transform .25s cubic-bezier(.2, .8, .2, 1); pointer-events: none; }
 .toast:not(:has(button:not([hidden]))) { padding: 10px 16px; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
@@ -268,6 +278,8 @@ body.intro .tile, body.intro .list { animation: tile-in .38s cubic-bezier(.2, .8
 body.slide-in .list, body.slide-in .grid { animation: in-from-right .3s cubic-bezier(.2, .8, .2, 1) both; }
 body.slide-back .list, body.slide-back .grid { animation: in-from-left .3s cubic-bezier(.2, .8, .2, 1) both; }
 
+@keyframes box-pop { 0% { transform: scale(1); } 40% { transform: scale(1.3); } 100% { transform: scale(1); } }
+@keyframes burst { from { transform: translate(0, 0) rotate(0) scale(1); opacity: 1; } to { transform: translate(var(--dx), var(--dy)) rotate(var(--turn)) scale(.35); opacity: 0; } }
 @keyframes tile-in { from { opacity: 0; transform: translateY(16px) scale(.94); } to { opacity: 1; transform: none; } }
 @keyframes item-in { from { opacity: 0; transform: translateY(-8px) scale(.97); } }
 @keyframes fade-up { from { opacity: 0; transform: translateY(8px); } }
@@ -284,6 +296,8 @@ body.slide-back .list, body.slide-back .grid { animation: in-from-left .3s cubic
   .install { transform: translateX(-50%); }
   .status-dot { animation: none !important; }
   .tile:active, .check:active .box { transform: none; }
+  .item.ticking .box, .item.unticking .box { animation: none; }
+  .item-text { transition: color .2s ease; }
 }
 
 /* tablet and phone ------------------------------------------------------------------------------ */

@@ -103,7 +103,7 @@ async function pull() {
   try {
     const snapshot = await request(`/api/state?since=${server.version}`);
     online = true;
-    if (snapshot && !pushing && !outbox.length) { accept(snapshot); render(); }
+    if (snapshot && !pushing && !outbox.length) { accept(snapshot); renderSoon(); }
   } catch { online = false; }
   showStatus();
 }
@@ -119,7 +119,7 @@ async function push() {
     outbox = outbox.slice(batch.length);
     store.set('checklist-outbox', outbox);
     accept(snapshot);
-    scheduleRender();
+    renderSoon();
   } catch {
     online = false;
   }
@@ -207,10 +207,14 @@ function render() {
 
 // Ticking an item fills the circle first, then the list re-sorts a moment later.
 let renderTimer;
+let holdUntil = 0;
 function scheduleRender(delay = 0) {
   clearTimeout(renderTimer);
+  holdUntil = Date.now() + delay;
   renderTimer = setTimeout(render, delay);
 }
+// Saving or syncing re-draws the list, but never in the middle of a tick animation.
+const renderSoon = () => scheduleRender(Math.max(0, holdUntil - Date.now()));
 
 // The latest change on a shared list: who added or ticked what, and when.
 function latestActivity(list) {
@@ -304,6 +308,33 @@ function renderList(list) {
   $('#top-bar').style.width = `${pct}%`;
   $('#empty').textContent = list.items.length ? (todo.length ? '' : 'Everything’s ticked off.') : 'Nothing here yet. Add your first item above.';
   shownIds = new Set(list.items.map((item) => item.id));
+}
+
+// Ticking the last item: a short buzz, a confetti burst from the tick, and a message.
+function celebrate(anchor) {
+  navigator.vibrate?.([12, 50, 12]);
+  showToast('All done');
+  if (!anchor || REDUCED_MOTION.matches) return;
+  const rect = anchor.getBoundingClientRect();
+  const root = getComputedStyle(document.documentElement);
+  const colours = [root.getPropertyValue('--ga').trim(), root.getPropertyValue('--gb').trim(), '#121826'];
+  const burst = document.createElement('div');
+  burst.className = 'burst';
+  burst.style.left = `${rect.left + rect.width / 2}px`;
+  burst.style.top = `${rect.top + rect.height / 2}px`;
+  for (let i = 0; i < 20; i++) {
+    const piece = document.createElement('i');
+    const angle = (i / 20) * Math.PI * 2 + Math.random() * 0.5;
+    const distance = 60 + Math.random() * 70;
+    piece.style.setProperty('--dx', `${Math.cos(angle) * distance}px`);
+    piece.style.setProperty('--dy', `${Math.sin(angle) * distance - 20}px`);
+    piece.style.setProperty('--turn', `${Math.round(Math.random() * 360)}deg`);
+    piece.style.setProperty('--c', colours[i % colours.length]);
+    piece.style.animationDelay = `${Math.round(Math.random() * 70)}ms`;
+    burst.append(piece);
+  }
+  document.body.append(burst);
+  setTimeout(() => burst.remove(), 1100);
 }
 
 // Slide between all lists and one list. Opening a list adds a history entry, so Back returns home.
@@ -695,12 +726,16 @@ document.addEventListener('click', (event) => {
   if (target.closest('[data-edit]')) return itemMenu(item);
   if (target.closest('[data-toggle]')) {
     const done = !item.done;
+    row.classList.add(done ? 'ticking' : 'unticking');
     row.classList.toggle('is-done', done);
     row.querySelector('[data-toggle]').setAttribute('aria-checked', done);
     navigator.vibrate?.(8);
     change({ type: 'checkItem', id: item.id, done });
     showStatus();
-    scheduleRender(REDUCED_MOTION.matches ? 0 : 450);
+    // The circle pops and the line draws across, then the row slides away and the list re-sorts.
+    if (!REDUCED_MOTION.matches) setTimeout(() => row.classList.add('leaving'), 430);
+    if (done && currentList()?.items.every((entry) => entry.done)) celebrate(row.querySelector('.box'));
+    scheduleRender(REDUCED_MOTION.matches ? 0 : 720);
   }
 });
 
