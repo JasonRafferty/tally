@@ -22,7 +22,7 @@ const PORT = Number(process.env.PORT) || 4175;
 const ON_SHARE = process.platform === 'win32' && import.meta.dirname.startsWith('\\\\');
 const DATA_DIR = resolve(process.env.DATA_DIR || (ON_SHARE ? join(process.env.LOCALAPPDATA || homedir(), 'tally') : join(import.meta.dirname, 'data')));
 const PASSWORD = process.env.APP_PASSWORD || '';
-const COOKIE = 'checklist_session';
+const COOKIE = 'tally_session';
 const MAX_BODY = 256 * 1024;
 const MAX_TEXT = 500;
 const PEOPLE = ['jason', 'wah'];
@@ -192,7 +192,7 @@ function listen(req, res) {
 setInterval(() => { for (const res of listeners) res.write(': still here\n\n'); }, 25_000).unref();
 
 // --- optional password ----------------------------------------------------------------------
-const sessionToken = PASSWORD ? createHmac('sha256', PASSWORD).update('checklist-session-v1').digest('hex') : '';
+const sessionToken = PASSWORD ? createHmac('sha256', PASSWORD).update('tally-session-v1').digest('hex') : '';
 const sameText = (a, b) => {
   const [x, y] = [a, b].map((value) => createHash('sha256').update(String(value)).digest());
   return timingSafeEqual(x, y);

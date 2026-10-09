@@ -28,7 +28,7 @@ const newId = () => crypto.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.
 const themeOf = (list) => THEMES[(list?.theme ?? 0) % THEMES.length];
 // Two people share this app. Each phone says which one it is, and that decides which lists it shows.
 const PEOPLE = { jason: { name: 'Jason', initial: 'J' }, wah: { name: 'Wah', initial: 'W' } };
-let me = PEOPLE[store.get('checklist-me', null)] ? store.get('checklist-me', null) : null;
+let me = PEOPLE[store.get('tally-me', null)] ? store.get('tally-me', null) : null;
 const otherPerson = () => (me === 'jason' ? 'wah' : 'jason');
 const ownerOf = (list) => (PEOPLE[list?.owner] ? list.owner : 'jason'); // older lists belong to Jason
 const visible = (list) => Boolean(list.shared) || ownerOf(list) === me;
@@ -39,8 +39,8 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 // --- data ----------------------------------------------------------------------------------
 // `server` is the last copy the server sent. `outbox` holds changes not yet saved there.
 // What's on screen is the server copy with the outbox replayed on top, so the app works offline.
-let server = store.get('checklist-server', { version: 0, lists: [], history: [] });
-let outbox = store.get('checklist-outbox', []);
+let server = store.get('tally-server', { version: 0, lists: [], history: [] });
+let outbox = store.get('tally-outbox', []);
 let lists = [];
 let loaded = server.version > 0;
 
@@ -72,7 +72,7 @@ function rebuild() {
 function change(...ops) {
   const at = Date.now();
   for (const op of ops) outbox.push({ at, by: me, ...op });
-  store.set('checklist-outbox', outbox);
+  store.set('tally-outbox', outbox);
   rebuild();
   push();
 }
@@ -91,7 +91,7 @@ async function request(path, options) {
 function accept(snapshot) {
   server = snapshot;
   loaded = true;
-  store.set('checklist-server', server);
+  store.set('tally-server', server);
   rebuild();
 }
 
@@ -117,7 +117,7 @@ async function push() {
     const snapshot = await request('/api/ops', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ops: batch }) });
     online = true;
     outbox = outbox.slice(batch.length);
-    store.set('checklist-outbox', outbox);
+    store.set('tally-outbox', outbox);
     accept(snapshot);
     renderSoon();
   } catch {
@@ -154,17 +154,17 @@ const route = () => decodeURIComponent(location.hash.match(/^#\/list\/(.+)$/)?.[
 const currentList = () => lists.find((list) => list.id === route());
 let shownIds = null; // item ids already on screen, so only new ones animate in
 let shownList = null;
-let doneOpen = store.get('checklist-done-open', true);
+let doneOpen = store.get('tally-done-open', true);
 // Pinned lists are kept per device, like App Drawer's pins: newest pin first.
-let pins = store.get('checklist-pins', []);
+let pins = store.get('tally-pins', []);
 const isPinned = (list) => pins.includes(list.id);
 function setPinned(listId, pinned) {
   pins = pins.filter((p) => p !== listId);
   if (pinned) pins.unshift(listId);
-  store.set('checklist-pins', pins);
+  store.set('tally-pins', pins);
 }
 // Which type of list the home screen shows. Swipe or tap the switch to change it.
-let view = store.get('checklist-kind', 'todo') === 'shopping' ? 'shopping' : 'todo';
+let view = store.get('tally-kind', 'todo') === 'shopping' ? 'shopping' : 'todo';
 const sortedLists = () => {
   const mine = lists.filter((list) => kindOf(list) === view && !list.shared && visible(list));
   return [
@@ -177,7 +177,7 @@ function setView(next) {
   const forward = next === 'shopping';
   stopSelecting();
   view = next;
-  store.set('checklist-kind', view);
+  store.set('tally-kind', view);
   if (!REDUCED_MOTION.matches) {
     document.body.classList.remove('slide-in', 'slide-back', 'intro');
     void document.body.offsetWidth;
@@ -191,7 +191,7 @@ function render() {
   const list = currentList();
   if (route() && !list && loaded) { location.replace('#/'); return; }
   // Opening a list puts you in its type, so Back lands on the right view.
-  if (list && kindOf(list) !== view) { view = kindOf(list); store.set('checklist-kind', view); }
+  if (list && kindOf(list) !== view) { view = kindOf(list); store.set('tally-kind', view); }
   document.body.dataset.view = list ? 'list' : 'home';
   document.body.dataset.kind = view;
   for (const button of document.querySelectorAll('[data-set-view]')) button.setAttribute('aria-checked', button.dataset.setView === view);
@@ -416,7 +416,7 @@ function deleteLists(chosen) {
   showToast(`Deleted ${label}`, () => {
     change(...saved.flatMap(restoreList));
     pins = savedPins;
-    store.set('checklist-pins', pins);
+    store.set('tally-pins', pins);
     render();
   });
 }
@@ -546,11 +546,11 @@ whoSheet.addEventListener('click', (event) => {
   if (!choice) { if (event.target === whoSheet && me) whoSheet.close(); return; }
   if (choice.dataset.who !== me) {
     me = choice.dataset.who;
-    store.set('checklist-me', me);
+    store.set('tally-me', me);
     // Forget the other person's lists, then fetch this person's.
     server = { version: 0, lists: [] };
     loaded = false;
-    store.set('checklist-server', server);
+    store.set('tally-server', server);
     selected = null;
     rebuild();
     pull();
@@ -718,7 +718,7 @@ document.addEventListener('click', (event) => {
     showToast(`Cleared ${plural(done.length, 'item')}`, () => { change(...restoreItems(done)); render(); });
     return;
   }
-  if (target.closest('#done-toggle')) { doneOpen = !doneOpen; store.set('checklist-done-open', doneOpen); render(); return; }
+  if (target.closest('#done-toggle')) { doneOpen = !doneOpen; store.set('tally-done-open', doneOpen); render(); return; }
   const row = target.closest('[data-item]');
   if (!row) return;
   const item = findItem(lists, row.dataset.item);
@@ -812,7 +812,7 @@ const isInstalledApp = () => window.matchMedia('(display-mode: standalone)').mat
 const installBar = $('#install');
 let installEvent = null;
 
-function snoozed() { return Date.now() < store.get('checklist-install-snooze', 0); }
+function snoozed() { return Date.now() < store.get('tally-install-snooze', 0); }
 function showInstall() {
   if (isInstalledApp() || snoozed()) return;
   if (installEvent) {
@@ -828,7 +828,7 @@ function showInstall() {
 }
 function hideInstall(snoozeDays) {
   installBar.hidden = true;
-  if (snoozeDays) store.set('checklist-install-snooze', Date.now() + snoozeDays * 86_400_000);
+  if (snoozeDays) store.set('tally-install-snooze', Date.now() + snoozeDays * 86_400_000);
 }
 
 window.addEventListener('beforeinstallprompt', (event) => {
