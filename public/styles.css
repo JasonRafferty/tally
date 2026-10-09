@@ -168,8 +168,7 @@ body.is-selecting .install { display: none; }
 /* typing on a phone: the add box sits right on top of the keyboard, suggestions just above it */
 body.typing.keyboard-open .add-wrap { position: fixed; z-index: 30; top: auto; bottom: var(--keyboard-inset, 0px); left: 0; right: 0; display: flex; flex-direction: column-reverse; margin: 0; padding: 8px 12px 10px; background: var(--bg); box-shadow: 0 -12px 24px -20px rgba(18, 24, 38, .45); animation: dock-in .2s cubic-bezier(.2, .8, .2, 1); }
 body.typing.keyboard-open .suggest { margin: 0 -12px; padding: 0 12px 8px; background: none; }
-body.typing.keyboard-open .list { padding-top: 64px; } /* holds the box's old place so the list doesn't jump */
-body.typing.keyboard-open .shell { padding-bottom: 180px; }
+body.typing.keyboard-open .shell { padding-bottom: 150px; } /* just enough to scroll the last item above the add box */
 @keyframes dock-in { from { transform: translateY(16px); opacity: .6; } }
 .add { display: flex; align-items: center; gap: 10px; height: 58px; padding: 0 8px 0 16px; border-radius: 18px; background: var(--tile); box-shadow: 0 1px 2px rgba(18, 24, 38, .05), 0 8px 20px -16px rgba(18, 24, 38, .4); }
 .add-plus { display: grid; flex: none; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(160deg, var(--ga), var(--gb)); color: #fff; }
@@ -243,8 +242,9 @@ body.slide-back #home-content { animation: in-from-left .32s cubic-bezier(.22,.8
 /* sheets: sign in, name a list, edit an item -------------------------------------------------- */
 .sheet { width: min(420px, calc(100% - 24px)); max-width: none; max-height: calc(var(--visible-height, 100dvh) - 24px); overflow-y: auto; overscroll-behavior: contain; margin: auto; padding: 0; border: 0; border-radius: 30px; background: var(--tile); color: var(--ink); box-shadow: 0 30px 80px -30px rgba(0, 0, 0, .45); }
 .sheet-panel > * { flex-shrink: 0; }
-body.keyboard-open .sheet[open] { position: fixed; top: calc(var(--visible-top, 0px) + 12px); bottom: auto; margin: 0 auto; }
-body.keyboard-open .sheet-panel { gap: 10px; padding: 18px; }
+/* with the keyboard up, sheets sit right on top of it: no gap between the keyboard and Save */
+body.keyboard-open .sheet[open] { position: fixed; top: auto; bottom: var(--keyboard-inset, 0px); margin: 0 auto; max-height: calc(var(--visible-height, 100dvh) - 12px); animation: none; }
+body.keyboard-open .sheet-panel { gap: 10px; padding: 18px 18px 14px; }
 .sheet::backdrop { background: rgba(18, 24, 38, .45); }
 .sheet[open] { animation: sheet-in .28s cubic-bezier(.2, .8, .2, 1); }
 .sheet-panel { display: grid; gap: 14px; padding: 24px; }

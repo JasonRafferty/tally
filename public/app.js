@@ -6,7 +6,6 @@ const THEMES = [
   ['#60a5fa', '#1d4ed8'],
   ['#818cf8', '#6d28d9'],
   ['#4ade80', '#0891b2'],
-  ['#334155', '#0f172a'],
 ];
 
 const TICK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>';
@@ -512,9 +511,9 @@ editSheet.addEventListener('click', (event) => { if (event.target === editSheet)
 
 function newList() {
   const shopping = view === 'shopping';
-  openSheet({ title: shopping ? 'New shopping list' : 'New to-do list', placeholder: shopping ? 'e.g. Groceries' : 'e.g. Chores', theme: nextTheme(), shared: false, onSave: (name, { theme, shared }) => {
+  openSheet({ title: shopping ? 'New shopping list' : 'New to-do list', placeholder: shopping ? 'e.g. Groceries' : 'e.g. Chores', shared: false, onSave: (name, { shared }) => {
     const listId = newId();
-    change({ type: 'addList', id: listId, name, kind: view, shared, theme });
+    change({ type: 'addList', id: listId, name, kind: view, shared, theme: nextTheme() }); // colour picked at random
     openList(listId);
     setTimeout(() => $('#add-input').focus(), 50);
   } });
@@ -699,8 +698,23 @@ function addToList(list, name, qty, grp) {
   const shopping = kindOf(list) === 'shopping';
   if (shopping) name = name.charAt(0).toUpperCase() + name.slice(1);
   const brought = shopping && list.items.find((item) => item.done && itemKey(item.text) === itemKey(name));
-  if (brought) change({ type: 'checkItem', id: brought.id, done: false }); // already on the list, ticked: put it back
-  else change({ type: 'addItem', id: newId(), listId: list.id, text: name, qty, ...(shopping && { grp: GROUP_IDS.has(grp) ? grp : guessGroup(name) }) });
+  if (brought) { change({ type: 'checkItem', id: brought.id, done: false }); return brought.id; } // already on the list, ticked: put it back
+  const itemId = newId();
+  change({ type: 'addItem', id: itemId, listId: list.id, text: name, qty, ...(shopping && { grp: GROUP_IDS.has(grp) ? grp : guessGroup(name) }) });
+  return itemId;
+}
+
+// After adding, keep the page where it is, unless the new item is out of sight: then bring it into
+// view between the header and the add box (or the keyboard), rather than leaving you somewhere empty.
+function revealItem(itemId) {
+  const row = itemId && document.querySelector(`#list [data-item="${CSS.escape(itemId)}"]`);
+  if (!row) return;
+  const docked = document.body.classList.contains('typing') && document.body.classList.contains('keyboard-open');
+  const top = (docked ? $('.top') : $('.add-wrap')).getBoundingClientRect().bottom + 8;
+  const bottom = (docked ? $('.add-wrap').getBoundingClientRect().top : (window.visualViewport?.height ?? window.innerHeight)) - 8;
+  const rect = row.getBoundingClientRect();
+  if (rect.top >= top && rect.bottom <= bottom) return;
+  window.scrollBy({ top: rect.top - top - Math.max(0, (bottom - top - rect.height) / 3), behavior: REDUCED_MOTION.matches ? 'auto' : 'smooth' });
 }
 
 addInput.addEventListener('input', () => { addForm.classList.toggle('has-text', addInput.value.trim() !== ''); renderSuggestions(); });
@@ -719,13 +733,16 @@ addForm.addEventListener('submit', (event) => {
   const name = shopping ? parsed.text.charAt(0).toUpperCase() + parsed.text.slice(1) : parsed.text;
   // Typing something you've bought before fills in its usual quantity and group.
   const usual = shopping ? knownItems().find((entry) => itemKey(entry.text) === itemKey(name)) : null;
-  addToList(list, usual?.text ?? name, parsed.qty || usual?.qty || '', usual?.grp);
+  const added = addToList(list, usual?.text ?? name, parsed.qty || usual?.qty || '', usual?.grp);
   addInput.value = '';
   addForm.classList.remove('has-text');
   render();
-  addInput.focus(); // keep the keyboard up for the next item
+  addInput.focus({ preventScroll: true }); // keep the keyboard up for the next item, without moving the page
   renderSuggestions();
+  revealItem(added);
 });
+// Tapping Add or a suggestion keeps the keyboard up: the text box never loses focus.
+addForm.querySelector('.add-go').addEventListener('pointerdown', (event) => event.preventDefault());
 // Tapping a suggestion adds it without taking the keyboard away.
 suggestBox.addEventListener('pointerdown', (event) => { if (event.target.closest('button')) event.preventDefault(); });
 suggestBox.addEventListener('click', (event) => {
@@ -734,12 +751,13 @@ suggestBox.addEventListener('click', (event) => {
   const entry = chip && suggestBox.found?.[Number(chip.dataset.suggest)];
   if (!entry || !list) return;
   const prefix = addInput.value.trim().match(new RegExp(`^(\\d+(?:\\.\\d+)?(?:\\s*${UNIT})?)(?:\\s+of)?\\s+`, 'i'));
-  addToList(list, entry.text, prefix ? prefix[1] : entry.qty, entry.grp);
+  const added = addToList(list, entry.text, prefix ? prefix[1] : entry.qty, entry.grp);
   addInput.value = '';
   addForm.classList.remove('has-text');
   render();
-  addInput.focus();
+  addInput.focus({ preventScroll: true });
   renderSuggestions();
+  revealItem(added);
 });
 
 document.addEventListener('click', (event) => {
