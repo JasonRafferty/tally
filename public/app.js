@@ -307,11 +307,30 @@ const groupOf = (item) => (GROUP_IDS.has(item.grp) ? item.grp : guessGroup(item.
 function groupedRows(items, fresh, shared) {
   return GROUPS.map((group) => {
     const inGroup = items.filter((item) => groupOf(item) === group.id);
-    return inGroup.length ? `<li class="group-head" role="presentation"><span>${group.name}</span><small>${inGroup.length}</small></li>${inGroup.map((item) => itemRow(item, fresh(item), shared)).join('')}` : '';
+    return inGroup.length ? `<li class="group-head" role="presentation" data-flip="head-${group.id}"><span>${group.name}</span><small>${inGroup.length}</small></li>${inGroup.map((item) => itemRow(item, fresh(item), shared)).join('')}` : '';
   }).join('');
 }
 
+// After the list re-draws, rows that moved glide from where they were to where they are now,
+// so a ticked item travels down to Done instead of vanishing and reappearing.
+function flipPositions() {
+  const before = new Map();
+  for (const el of document.querySelectorAll('#list [data-item], #list [data-flip]')) before.set(el.dataset.item ?? el.dataset.flip, el.getBoundingClientRect().top);
+  return () => {
+    if (REDUCED_MOTION.matches) return;
+    for (const el of document.querySelectorAll('#list [data-item], #list [data-flip]')) {
+      const was = before.get(el.dataset.item ?? el.dataset.flip);
+      const moved = was === undefined ? 0 : was - el.getBoundingClientRect().top;
+      if (Math.abs(moved) > 1) el.animate([{ transform: `translateY(${moved}px)` }, { transform: 'none' }], { duration: 380, easing: 'cubic-bezier(.2, .8, .2, 1)' });
+    }
+  };
+}
+
 function renderList(list) {
+  const glide = shownList === list.id ? flipPositions() : null;
+  try { drawList(list); } finally { glide?.(); }
+}
+function drawList(list) {
   if (shownList !== list.id) { shownIds = null; shownList = list.id; }
   const fresh = (item) => shownIds && !shownIds.has(item.id) && !REDUCED_MOTION.matches;
   const todo = list.items.filter((item) => !item.done).sort((x, y) => y.created - x.created);
@@ -685,8 +704,11 @@ function addToList(list, name, qty, grp) {
 }
 
 addInput.addEventListener('input', () => { addForm.classList.toggle('has-text', addInput.value.trim() !== ''); renderSuggestions(); });
-addInput.addEventListener('focus', renderSuggestions);
-addInput.addEventListener('blur', () => setTimeout(renderSuggestions, 150)); // after a tap on a suggestion has landed
+addInput.addEventListener('focus', () => { document.body.classList.add('typing'); renderSuggestions(); });
+addInput.addEventListener('blur', () => setTimeout(() => { // after a tap on a suggestion has landed
+  if (document.activeElement !== addInput) document.body.classList.remove('typing');
+  renderSuggestions();
+}, 150));
 addForm.addEventListener('submit', (event) => {
   event.preventDefault();
   const list = currentList();
@@ -755,9 +777,8 @@ document.addEventListener('click', (event) => {
     change({ type: 'checkItem', id: item.id, done });
     showStatus();
     // The circle pops and the line draws across, then the row slides away and the list re-sorts.
-    if (!REDUCED_MOTION.matches) setTimeout(() => row.classList.add('leaving'), 430);
     if (done && currentList()?.items.every((entry) => entry.done)) celebrate(row.querySelector('.box'));
-    scheduleRender(REDUCED_MOTION.matches ? 0 : 720);
+    scheduleRender(REDUCED_MOTION.matches ? 0 : 420);
   }
 });
 
@@ -880,6 +901,8 @@ function updateViewport() {
   const height = viewport?.height ?? window.innerHeight;
   document.documentElement.style.setProperty('--visible-height', `${height}px`);
   document.documentElement.style.setProperty('--visible-top', `${viewport?.offsetTop ?? 0}px`);
+  // How much of the bottom of the screen the keyboard covers, so things can sit just above it.
+  document.documentElement.style.setProperty('--keyboard-inset', `${Math.max(0, window.innerHeight - height - (viewport?.offsetTop ?? 0))}px`);
   document.body.classList.toggle('keyboard-open', height < window.innerHeight - 120);
 }
 window.visualViewport?.addEventListener('resize', updateViewport);

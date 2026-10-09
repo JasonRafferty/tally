@@ -1,7 +1,7 @@
 // Keeps a copy of the app so it opens without a connection. Lists themselves sync through /api.
 // Files are fetched fresh when online (so updates show up straight away) and from the cache when not.
-const CACHE = 'tally-v15';
-const SHELL = ['./', 'index.html', 'styles.css?v=11', 'groups.js?v=1', 'icons.js?v=1', 'app.js?v=13', 'manifest.webmanifest', 'assets/app-icon.svg', 'assets/icon-192.png', 'assets/favicon-32.png'];
+const CACHE = 'tally-v16';
+const SHELL = ['./', 'index.html', 'styles.css?v=12', 'groups.js?v=1', 'icons.js?v=1', 'app.js?v=14', 'manifest.webmanifest', 'assets/app-icon.svg', 'assets/icon-192.png', 'assets/favicon-32.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));
