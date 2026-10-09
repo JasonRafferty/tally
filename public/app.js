@@ -497,12 +497,18 @@ swatches.addEventListener('click', (event) => {
 });
 pinToggle.addEventListener('click', () => pinToggle.setAttribute('aria-pressed', pinToggle.getAttribute('aria-pressed') !== 'true'));
 shareToggle.addEventListener('click', () => shareToggle.setAttribute('aria-pressed', shareToggle.getAttribute('aria-pressed') !== 'true'));
-editForm.addEventListener('submit', () => {
+editForm.addEventListener('submit', (event) => {
+  event.preventDefault();
   const value = editForm.text.value.trim();
   const theme = Number(swatches.querySelector('[aria-checked="true"]')?.dataset.theme);
   // A switch that isn't on show for this sheet reports nothing, so it can't change anything.
   const on = (button) => (button.hidden ? undefined : button.getAttribute('aria-pressed') === 'true');
-  if (value) sheetActions?.onSave(value, { theme, pinned: on(pinToggle), shared: on(shareToggle), qty: qtyField.hidden ? undefined : qtyField.value.trim(), group: groupField.hidden ? undefined : groupField.value });
+  if (!value) return;
+  const options = { theme, pinned: on(pinToggle), shared: on(shareToggle), qty: qtyField.hidden ? undefined : qtyField.value.trim(), group: groupField.hidden ? undefined : groupField.value };
+  // Finish the dialog's focus restoration before navigating to a different page.
+  editForm.text.blur();
+  editSheet.close();
+  sheetActions?.onSave(value, options);
 });
 editSheet.querySelector('[data-sheet-cancel]').addEventListener('click', () => editSheet.close());
 editSheet.querySelector('[data-sheet-delete]').addEventListener('click', () => { editSheet.close(); sheetActions?.onDelete(); });
@@ -515,7 +521,6 @@ function newList() {
     const listId = newId();
     change({ type: 'addList', id: listId, name, kind: view, shared, theme: nextTheme() }); // colour picked at random
     openList(listId);
-    setTimeout(() => $('#add-input').focus(), 50);
   } });
 }
 
@@ -704,19 +709,6 @@ function addToList(list, name, qty, grp) {
   return itemId;
 }
 
-// After adding, keep the page where it is, unless the new item is out of sight: then bring it into
-// view between the header and the add box (or the keyboard), rather than leaving you somewhere empty.
-function revealItem(itemId) {
-  const row = itemId && document.querySelector(`#list [data-item="${CSS.escape(itemId)}"]`);
-  if (!row) return;
-  const docked = document.body.classList.contains('typing') && document.body.classList.contains('keyboard-open');
-  const top = (docked ? $('.top') : $('.add-wrap')).getBoundingClientRect().bottom + 8;
-  const bottom = (docked ? $('.add-wrap').getBoundingClientRect().top : (window.visualViewport?.height ?? window.innerHeight)) - 8;
-  const rect = row.getBoundingClientRect();
-  if (rect.top >= top && rect.bottom <= bottom) return;
-  window.scrollBy({ top: rect.top - top - Math.max(0, (bottom - top - rect.height) / 3), behavior: REDUCED_MOTION.matches ? 'auto' : 'smooth' });
-}
-
 addInput.addEventListener('input', () => { addForm.classList.toggle('has-text', addInput.value.trim() !== ''); renderSuggestions(); });
 addInput.addEventListener('focus', () => { document.body.classList.add('typing'); renderSuggestions(); });
 addInput.addEventListener('blur', () => setTimeout(() => { // after a tap on a suggestion has landed
@@ -733,13 +725,12 @@ addForm.addEventListener('submit', (event) => {
   const name = shopping ? parsed.text.charAt(0).toUpperCase() + parsed.text.slice(1) : parsed.text;
   // Typing something you've bought before fills in its usual quantity and group.
   const usual = shopping ? knownItems().find((entry) => itemKey(entry.text) === itemKey(name)) : null;
-  const added = addToList(list, usual?.text ?? name, parsed.qty || usual?.qty || '', usual?.grp);
+  addToList(list, usual?.text ?? name, parsed.qty || usual?.qty || '', usual?.grp);
   addInput.value = '';
   addForm.classList.remove('has-text');
   render();
   addInput.focus({ preventScroll: true }); // keep the keyboard up for the next item, without moving the page
   renderSuggestions();
-  revealItem(added);
 });
 // Tapping Add or a suggestion keeps the keyboard up: the text box never loses focus.
 addForm.querySelector('.add-go').addEventListener('pointerdown', (event) => event.preventDefault());
@@ -751,13 +742,12 @@ suggestBox.addEventListener('click', (event) => {
   const entry = chip && suggestBox.found?.[Number(chip.dataset.suggest)];
   if (!entry || !list) return;
   const prefix = addInput.value.trim().match(new RegExp(`^(\\d+(?:\\.\\d+)?(?:\\s*${UNIT})?)(?:\\s+of)?\\s+`, 'i'));
-  const added = addToList(list, entry.text, prefix ? prefix[1] : entry.qty, entry.grp);
+  addToList(list, entry.text, prefix ? prefix[1] : entry.qty, entry.grp);
   addInput.value = '';
   addForm.classList.remove('has-text');
   render();
   addInput.focus({ preventScroll: true });
   renderSuggestions();
-  revealItem(added);
 });
 
 document.addEventListener('click', (event) => {
