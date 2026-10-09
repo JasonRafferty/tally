@@ -508,7 +508,7 @@ shareToggle.addEventListener('click', () => shareToggle.setAttribute('aria-press
 editForm.addEventListener('submit', (event) => {
   event.preventDefault();
   const value = editForm.text.value.trim();
-  const theme = Number(swatches.querySelector('[aria-checked="true"]')?.dataset.theme);
+  const theme = swatches.hidden ? undefined : Number(swatches.querySelector('[aria-checked="true"]')?.dataset.theme);
   // A switch that isn't on show for this sheet reports nothing, so it can't change anything.
   const on = (button) => (button.hidden ? undefined : button.getAttribute('aria-pressed') === 'true');
   if (!value) return;
@@ -542,12 +542,13 @@ function nextTheme() {
 function listMenu(list) {
   const pinned = isPinned(list);
   const theme = list.theme % THEMES.length;
+  const editColour = document.body.dataset.view === 'home';
   const mine = ownerOf(list) === me; // only the person who made a list can share or unshare it
-  openSheet({ title: 'Edit list', value: list.name, theme, grouping: kindOf(list) === 'shopping' ? list.grouping ?? 'aisle' : undefined, pinned: list.shared ? undefined : pinned, shared: mine ? Boolean(list.shared) : undefined, onSave: (name, options) => {
+  openSheet({ title: 'Edit list', value: list.name, theme: editColour ? theme : undefined, grouping: kindOf(list) === 'shopping' ? list.grouping ?? 'aisle' : undefined, pinned: list.shared ? undefined : pinned, shared: mine ? Boolean(list.shared) : undefined, onSave: (name, options) => {
     const ops = [];
     if (options.grouping !== undefined && options.grouping !== (list.grouping ?? 'aisle')) ops.push({ type: 'setGrouping', id: list.id, grouping: options.grouping });
     if (name !== list.name) ops.push({ type: 'renameList', id: list.id, name });
-    if (options.theme !== theme) ops.push({ type: 'setTheme', id: list.id, theme: options.theme });
+    if (options.theme !== undefined && options.theme !== theme) ops.push({ type: 'setTheme', id: list.id, theme: options.theme });
     if (options.shared !== undefined && options.shared !== Boolean(list.shared)) {
       ops.push({ type: 'setShared', id: list.id, shared: options.shared });
       if (options.shared) setPinned(list.id, false); // shared lists live under Together, not as pinned tiles
