@@ -1,7 +1,7 @@
 // Keeps a copy of the app so it opens without a connection. Lists themselves sync through /api.
 // Files are fetched fresh when online (so updates show up straight away) and from the cache when not.
-const CACHE = 'checklist-v3';
-const SHELL = ['./', 'index.html', 'styles.css?v=3', 'app.js?v=3', 'manifest.webmanifest', 'assets/app-icon.svg', 'assets/icon-192.png', 'assets/favicon-32.png'];
+const CACHE = 'checklist-v4';
+const SHELL = ['./', 'index.html', 'styles.css?v=4', 'app.js?v=4', 'manifest.webmanifest', 'assets/app-icon.svg', 'assets/icon-192.png', 'assets/favicon-32.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));

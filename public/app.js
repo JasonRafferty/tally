@@ -26,6 +26,7 @@ const store = {
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const newId = () => crypto.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 const themeOf = (list) => THEMES[(list?.theme ?? 0) % THEMES.length];
+const kindOf = (list) => (list?.kind === 'shopping' ? 'shopping' : 'todo');
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 // --- data ----------------------------------------------------------------------------------
@@ -37,7 +38,7 @@ let lists = [];
 let loaded = server.version > 0;
 
 const OPS = {
-  addList: (all, op) => { if (!all.some((l) => l.id === op.id)) all.push({ id: op.id, name: op.name, theme: op.theme, created: op.at, items: [] }); },
+  addList: (all, op) => { if (!all.some((l) => l.id === op.id)) all.push({ id: op.id, name: op.name, kind: op.kind === 'shopping' ? 'shopping' : 'todo', theme: op.theme, created: op.at, items: [] }); },
   renameList: (all, op) => { const list = all.find((l) => l.id === op.id); if (list) list.name = op.name; },
   setTheme: (all, op) => { const list = all.find((l) => l.id === op.id); if (list) list.theme = op.theme; },
   deleteList: (all, op) => { const i = all.findIndex((l) => l.id === op.id); if (i >= 0) all.splice(i, 1); },
@@ -132,8 +133,9 @@ function statusLine() {
     const left = list.items.filter((item) => !item.done).length;
     return list.items.length ? (left ? `${left} left of ${list.items.length}` : 'All done') : 'Synced';
   }
-  const left = lists.reduce((sum, l) => sum + l.items.filter((item) => !item.done).length, 0);
-  return lists.length ? `${plural(left, 'item')} to do` : 'Synced';
+  const shown = lists.filter((l) => kindOf(l) === view);
+  const left = shown.reduce((sum, l) => sum + l.items.filter((item) => !item.done).length, 0);
+  return shown.length ? (view === 'shopping' ? `${left} to buy` : `${plural(left, 'item')} to do`) : 'Synced';
 }
 
 // --- views ---------------------------------------------------------------------------------
@@ -150,20 +152,42 @@ function setPinned(listId, pinned) {
   if (pinned) pins.unshift(listId);
   store.set('checklist-pins', pins);
 }
-const sortedLists = () => [
-  ...pins.map((p) => lists.find((list) => list.id === p)).filter(Boolean),
-  ...lists.filter((list) => !isPinned(list)),
-];
+// Which type of list the home screen shows. Swipe or tap the switch to change it.
+let view = store.get('checklist-kind', 'todo') === 'shopping' ? 'shopping' : 'todo';
+const sortedLists = () => {
+  const mine = lists.filter((list) => kindOf(list) === view);
+  return [
+    ...pins.map((p) => mine.find((list) => list.id === p)).filter(Boolean),
+    ...mine.filter((list) => !isPinned(list)),
+  ];
+};
+function setView(next) {
+  if (next === view) return;
+  const forward = next === 'shopping';
+  stopSelecting();
+  view = next;
+  store.set('checklist-kind', view);
+  if (!REDUCED_MOTION.matches) {
+    document.body.classList.remove('slide-in', 'slide-back', 'intro');
+    void document.body.offsetWidth;
+    document.body.classList.add(forward ? 'slide-in' : 'slide-back');
+  }
+  render();
+}
 
 function render() {
   clearTimeout(renderTimer);
   const list = currentList();
   if (route() && !list && loaded) { location.replace('#/'); return; }
+  // Opening a list puts you in its type, so Back lands on the right view.
+  if (list && kindOf(list) !== view) { view = kindOf(list); store.set('checklist-kind', view); }
   document.body.dataset.view = list ? 'list' : 'home';
+  document.body.dataset.kind = view;
+  for (const button of document.querySelectorAll('[data-set-view]')) button.setAttribute('aria-checked', button.dataset.setView === view);
   const [a, b] = list ? themeOf(list) : THEMES[0];
   document.documentElement.style.setProperty('--ga', a);
   document.documentElement.style.setProperty('--gb', b);
-  $('#title').textContent = list ? list.name : selected ? `${selected.size} selected` : 'Lists';
+  $('#title').textContent = list ? list.name : selected ? `${selected.size} selected` : view === 'shopping' ? 'Shopping' : 'To-do';
   document.title = list ? `${list.name} · Checklist` : 'Checklist';
   if (list) renderList(list); else renderHome();
   showStatus();
@@ -199,9 +223,9 @@ function renderHome() {
       <span class="bar" aria-hidden="true"><span style="width:${pct}%"></span></span>
       <span class="select-mark" aria-hidden="true">${TICK}</span>
     </button>`;
-  }).join('') + `<button type="button" class="tile new" data-new-list style="--delay:${60 + lists.length * 35}ms">
+  }).join('') + `<button type="button" class="tile new" data-new-list style="--delay:${60 + shown.length * 35}ms">
       <span class="icon">${PLUS}</span>
-      <span class="copy"><b>New list</b><small>${lists.length ? 'Shopping, chores, packing…' : 'Start your first list'}</small></span>
+      <span class="copy"><b>New list</b><small>${view === 'shopping' ? (shown.length ? 'Groceries, hardware…' : 'Start a shopping list') : (shown.length ? 'Chores, work, plans…' : 'Start your first list')}</small></span>
     </button>`;
 }
 
@@ -353,9 +377,10 @@ editSheet.querySelector('[data-sheet-delete]').addEventListener('click', () => {
 editSheet.addEventListener('click', (event) => { if (event.target === editSheet) editSheet.close(); });
 
 function newList() {
-  openSheet({ title: 'New list', placeholder: 'e.g. Groceries', theme: nextTheme(), onSave: (name, { theme }) => {
+  const shopping = view === 'shopping';
+  openSheet({ title: shopping ? 'New shopping list' : 'New to-do list', placeholder: shopping ? 'e.g. Groceries' : 'e.g. Chores', theme: nextTheme(), onSave: (name, { theme }) => {
     const listId = newId();
-    change({ type: 'addList', id: listId, name, theme });
+    change({ type: 'addList', id: listId, name, kind: view, theme });
     openList(listId);
     setTimeout(() => $('#add-input').focus(), 50);
   } });
@@ -398,7 +423,7 @@ const restoreItems = (items) => items.flatMap((item) => [
   { type: 'addItem', id: item.id, listId: item.listId, text: item.text, at: item.created },
   ...(item.done ? [{ type: 'checkItem', id: item.id, done: true, at: item.doneAt }] : []),
 ]);
-const restoreList = (list) => [{ type: 'addList', id: list.id, name: list.name, theme: list.theme, at: list.created }, ...restoreItems(list.items)];
+const restoreList = (list) => [{ type: 'addList', id: list.id, name: list.name, kind: kindOf(list), theme: list.theme, at: list.created }, ...restoreItems(list.items)];
 
 // --- sign in (only when the server has APP_PASSWORD set) -----------------------------------
 const loginSheet = $('#login-sheet');
@@ -457,6 +482,8 @@ addForm.addEventListener('submit', (event) => {
 document.addEventListener('click', (event) => {
   if (held) { held = false; event.preventDefault(); return; }
   const target = event.target;
+  const switchTo = target.closest('[data-set-view]');
+  if (switchTo) return setView(switchTo.dataset.setView);
   const tile = target.closest('[data-list]');
   if (tile && selected) return toggleSelected(tile.dataset.list);
   if (tile) { openList(tile.dataset.list); return; }
@@ -509,6 +536,24 @@ document.addEventListener('pointermove', (event) => { if (hold && Math.hypot(eve
 document.addEventListener('contextmenu', (event) => { if (event.target.closest('[data-list], [data-item]')) event.preventDefault(); });
 // iOS Safari only shows :active press styles when the page listens for touches.
 document.addEventListener('touchstart', () => {}, { passive: true });
+
+// Swipe sideways on the home screen to switch between To-do and Shopping.
+let swipe = null;
+document.addEventListener('touchstart', (event) => {
+  const t = event.touches[0];
+  const blocked = document.body.dataset.view !== 'home' || selected || event.touches.length > 1 || event.target.closest('dialog, .select-bar, .install');
+  swipe = blocked ? null : { x: t.clientX, y: t.clientY };
+}, { passive: true });
+document.addEventListener('touchend', (event) => {
+  if (!swipe) return;
+  const t = event.changedTouches[0];
+  const dx = t.clientX - swipe.x;
+  const dy = t.clientY - swipe.y;
+  swipe = null;
+  if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+  setView(dx < 0 ? 'shopping' : 'todo');
+}, { passive: true });
+document.addEventListener('touchcancel', () => { swipe = null; });
 
 document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && selected && !editSheet.open) stopSelecting(); });
 

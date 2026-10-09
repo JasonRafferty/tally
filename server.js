@@ -59,12 +59,16 @@ db.exec(`
   INSERT OR IGNORE INTO meta (key, value) VALUES ('version', 1);
 `);
 
+// Upgrades: databases made before a column existed get it added, with a safe default.
+const hasColumn = (table, column) => db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
+if (!hasColumn('lists', 'kind')) db.exec(`ALTER TABLE lists ADD COLUMN kind TEXT NOT NULL DEFAULT 'todo'`);
+
 const sql = {
   version: db.prepare(`SELECT value FROM meta WHERE key = 'version'`),
   bump: db.prepare(`UPDATE meta SET value = value + 1 WHERE key = 'version'`),
-  lists: db.prepare(`SELECT id, name, theme, created FROM lists ORDER BY created`),
+  lists: db.prepare(`SELECT id, name, kind, theme, created FROM lists ORDER BY created`),
   items: db.prepare(`SELECT id, list_id AS listId, text, done, created, done_at AS doneAt FROM items ORDER BY created`),
-  addList: db.prepare(`INSERT OR IGNORE INTO lists (id, name, theme, created) VALUES (?, ?, ?, ?)`),
+  addList: db.prepare(`INSERT OR IGNORE INTO lists (id, name, kind, theme, created) VALUES (?, ?, ?, ?, ?)`),
   renameList: db.prepare(`UPDATE lists SET name = ? WHERE id = ?`),
   setTheme: db.prepare(`UPDATE lists SET theme = ? WHERE id = ?`),
   deleteList: db.prepare(`DELETE FROM lists WHERE id = ?`),
@@ -91,7 +95,7 @@ const text = (value) => (typeof value === 'string' ? value.trim().slice(0, MAX_T
 const time = (value) => (Number.isFinite(value) && value > 0 ? Math.floor(value) : Date.now());
 
 const OPS = {
-  addList: (op) => id(op.id) && text(op.name) && sql.addList.run(op.id, text(op.name), Number(op.theme) || 0, time(op.at)),
+  addList: (op) => id(op.id) && text(op.name) && sql.addList.run(op.id, text(op.name), op.kind === 'shopping' ? 'shopping' : 'todo', Number(op.theme) || 0, time(op.at)),
   renameList: (op) => id(op.id) && text(op.name) && sql.renameList.run(text(op.name), op.id),
   setTheme: (op) => id(op.id) && Number.isInteger(op.theme) && op.theme >= 0 && sql.setTheme.run(op.theme, op.id),
   deleteList: (op) => id(op.id) && sql.deleteList.run(op.id),

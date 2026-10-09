@@ -46,6 +46,17 @@ h1 { overflow: hidden; font-size: 2.1rem; font-weight: 800; letter-spacing: -.03
 .status[data-state="saving"] .status-dot { background: #f59e0b; box-shadow: 0 0 0 4px rgba(245, 158, 11, .2); }
 .status[data-state="down"] .status-dot { background: #ef4444; box-shadow: 0 0 0 4px rgba(239, 68, 68, .18); }
 
+/* To-do | Shopping switch, the same as App Drawer's Home | Web */
+.seg { position: relative; display: grid; grid-template-columns: 1fr 1fr; flex: none; width: 220px; padding: 5px; border-radius: 18px; background: var(--tile); box-shadow: 0 1px 2px rgba(18, 24, 38, .06); }
+.seg-pill { position: absolute; top: 5px; bottom: 5px; left: 5px; width: calc(50% - 5px); border-radius: 13px; background: var(--dark); box-shadow: 0 6px 14px -6px rgba(18, 24, 38, .5); transition: transform .32s cubic-bezier(.3, .7, .2, 1); }
+body[data-kind="shopping"] .seg-pill { transform: translateX(100%); }
+.seg button { position: relative; display: flex; align-items: center; justify-content: center; gap: 6px; height: 40px; border: 0; border-radius: 13px; background: none; color: var(--muted); font: 700 .9rem Manrope, sans-serif; cursor: pointer; transition: color .2s ease; }
+.seg button:hover { color: var(--ink); }
+.seg button[aria-checked="true"] { color: #fff; }
+.seg svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; }
+body[data-view="list"] .seg { display: none; }
+body.is-selecting .seg { opacity: .35; pointer-events: none; }
+
 .round { display: grid; flex: none; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 15px; background: var(--tile); box-shadow: 0 1px 2px rgba(18, 24, 38, .06); cursor: pointer; transition: transform .15s ease; }
 .round svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .round.more svg { fill: currentColor; stroke: none; }
@@ -235,10 +246,14 @@ body.slide-back .list, body.slide-back .grid { animation: in-from-left .3s cubic
 @media (max-width: 560px) {
   .shell, body[data-view="list"] .shell { width: calc(100% - 24px); padding-top: 24px; }
   .top { gap: 10px; margin: 0 -12px 14px; padding: max(12px, env(safe-area-inset-top)) 12px 12px; }
-  h1 { font-size: 1.6rem; }
+  h1 { font-size: 1.5rem; }
   body[data-view="list"] h1 { font-size: 1.35rem; }
   .status { gap: 7px; margin-top: 3px; font-size: .78rem; }
   .round { width: 40px; height: 40px; border-radius: 13px; }
+  .seg { width: 190px; padding: 4px; border-radius: 15px; }
+  .seg-pill { top: 4px; bottom: 4px; left: 4px; width: calc(50% - 4px); border-radius: 11px; }
+  .seg button { height: 36px; gap: 4px; font-size: .8rem; }
+  .seg svg { width: 14px; height: 14px; }
   .grid { grid-auto-rows: minmax(120px, auto); gap: 10px; }
   .tile { padding: 15px; border-radius: 18px; }
   .corner { top: 15px; right: 15px; }
